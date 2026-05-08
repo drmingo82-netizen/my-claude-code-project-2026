@@ -418,14 +418,14 @@ export default function Products() {
         </div>
       )}
 
-      {/* Search + filter + import/export */}
-      <div className="flex flex-wrap gap-2 mb-4">
+      {/* Search + filter */}
+      <div className="flex gap-2 mb-2">
         <input
           type="search"
           placeholder="Search name or SKU…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="flex-1 min-w-[180px] text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#f97316] focus:border-transparent"
+          className="flex-1 text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#f97316] focus:border-transparent"
         />
         {categories.length > 0 && (
           <select
@@ -439,6 +439,10 @@ export default function Products() {
             ))}
           </select>
         )}
+      </div>
+
+      {/* Import/export toolbar */}
+      <div className="flex items-center gap-2 mb-4">
         <button
           onClick={handleExport}
           disabled={products.length === 0}
@@ -463,7 +467,7 @@ export default function Products() {
           </button>
           <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleImportFile} />
         </div>
-        {importError && <p className="text-xs text-red-500 self-center">{importError}</p>}
+        {importError && <p className="text-xs text-red-500">{importError}</p>}
       </div>
 
       {/* Table */}

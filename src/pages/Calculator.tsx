@@ -467,13 +467,14 @@ export default function Calculator() {
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
             Platform / Sales Channel
           </p>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex overflow-x-auto gap-2 pb-1 -mb-1 scrollbar-none">
             {PLATFORMS.map((p, i) => (
               <button
                 key={p.label}
                 onClick={() => { setPlatformIdx(i); setUseCustomFee(false); }}
+                style={{ touchAction: 'manipulation' }}
                 className={[
-                  'text-xs px-3 py-1.5 rounded-lg border transition-colors',
+                  'text-xs px-3 py-1.5 rounded-lg border transition-colors whitespace-nowrap shrink-0',
                   !useCustomFee && platformIdx === i
                     ? 'bg-[#1e2a3a] text-white border-[#1e2a3a]'
                     : 'border-slate-200 text-slate-600 hover:bg-slate-50',
