@@ -457,8 +457,8 @@ export default function Calculator() {
   return (
     <div className="p-4 max-w-5xl mx-auto">
       <div className="mb-5">
-        <h1 className="text-xl font-bold text-[#1e2a3a]">Profit Calculator</h1>
-        <p className="text-xs text-slate-400 mt-0.5">Model pricing, margins, and break-even</p>
+        <h1 className="hidden lg:block text-xl font-bold text-[#1e2a3a]">Profit Calculator</h1>
+        <p className="text-xs text-slate-400 lg:mt-0.5">Model pricing, margins, and break-even</p>
       </div>
 
       {/* Global options */}

@@ -245,8 +245,8 @@ export default function Filament() {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-xl font-bold text-[#1e2a3a]">Filament Inventory</h1>
-          <p className="text-xs text-slate-400 mt-0.5">{spools.length} spool{spools.length !== 1 ? 's' : ''} tracked</p>
+          <h1 className="hidden lg:block text-xl font-bold text-[#1e2a3a]">Filament Inventory</h1>
+          <p className="text-xs text-slate-400 lg:mt-0.5">{spools.length} spool{spools.length !== 1 ? 's' : ''} tracked</p>
         </div>
         <button
           onClick={() => setModal('add')}

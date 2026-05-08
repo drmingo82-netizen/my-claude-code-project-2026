@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: '📊' },
@@ -28,9 +28,35 @@ function NavItem({ to, label, icon }: { to: string; label: string; icon: string 
   );
 }
 
+function MobileHeader() {
+  const { pathname } = useLocation();
+  const current = navItems.find((n) =>
+    n.to === '/' ? pathname === '/' : pathname.startsWith(n.to)
+  );
+
+  return (
+    <header className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-[#1e2a3a] text-white flex items-center gap-3 px-4 h-14 shrink-0">
+      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#f97316] text-white text-sm font-bold leading-none shrink-0">
+        TC
+      </div>
+      <div className="min-w-0">
+        <p className="text-[9px] uppercase tracking-widest text-white/40 leading-none mb-0.5">
+          Tactile Creations
+        </p>
+        <p className="text-sm font-semibold leading-none truncate">
+          {current?.label ?? 'App'}
+        </p>
+      </div>
+    </header>
+  );
+}
+
 export default function AppLayout() {
   return (
     <div className="flex flex-col min-h-dvh lg:flex-row">
+      {/* Mobile top header */}
+      <MobileHeader />
+
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex flex-col w-56 bg-[#1e2a3a] text-white shrink-0 min-h-screen">
         <div className="px-5 py-6 border-b border-white/10">
@@ -59,8 +85,8 @@ export default function AppLayout() {
         </nav>
       </aside>
 
-      {/* Main content */}
-      <main className="flex-1 overflow-auto pb-20 lg:pb-0">
+      {/* Main content — push down past header on mobile, push up past bottom nav */}
+      <main className="flex-1 overflow-auto pt-14 pb-20 lg:pt-0 lg:pb-0">
         <Outlet />
       </main>
 

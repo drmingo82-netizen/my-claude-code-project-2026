@@ -382,8 +382,8 @@ export default function Products() {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-xl font-bold text-[#1e2a3a]">Product Catalog</h1>
-          <p className="text-xs text-slate-400 mt-0.5">{products.length} SKU{products.length !== 1 ? 's' : ''}</p>
+          <h1 className="hidden lg:block text-xl font-bold text-[#1e2a3a]">Product Catalog</h1>
+          <p className="text-xs text-slate-400 lg:mt-0.5">{products.length} SKU{products.length !== 1 ? 's' : ''}</p>
         </div>
         <button
           onClick={() => setModal('add')}

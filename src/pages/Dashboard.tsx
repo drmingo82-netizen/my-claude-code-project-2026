@@ -70,8 +70,8 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-xl font-bold text-[#1e2a3a]">Dashboard</h1>
-          <p className="text-xs text-slate-400 mt-0.5">Tactile Creations overview</p>
+          <h1 className="hidden lg:block text-xl font-bold text-[#1e2a3a]">Dashboard</h1>
+          <p className="text-xs text-slate-400 lg:mt-0.5">Tactile Creations overview</p>
         </div>
         {!hasData ? (
           <button
