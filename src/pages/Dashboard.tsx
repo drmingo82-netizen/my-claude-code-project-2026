@@ -1,3 +1,4 @@
+import { useState, useEffect, useRef } from 'react';
 import {
   BarChart,
   Bar,
@@ -13,6 +14,14 @@ import { useSalesStore } from '../stores/salesStore';
 import { computeKPIs, monthlyRevenueChart, topProducts } from '../lib/metrics';
 import { demoSpools, demoProducts, demoSales } from '../lib/demoData';
 import PrinterWidget from '../components/PrinterWidget';
+import JobCompleteModal from '../components/JobCompleteModal';
+import { usePrinterStatus } from '../hooks/usePrinterStatus';
+import type { CompletedJob, PrinterEntry } from '../hooks/usePrinterStatus';
+
+interface PendingJob {
+  printer: PrinterEntry;
+  job:     CompletedJob;
+}
 
 const fmt = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
@@ -49,6 +58,23 @@ export default function Dashboard() {
   const importProducts = useProductStore((s) => s.importProducts);
   const sales = useSalesStore((s) => s.sales);
   const hasData = sales.length > 0 || products.length > 0;
+
+  const { printers, serverOnline } = usePrinterStatus();
+  const lastSeenJobRefs = useRef<Record<string, string | null>>({});
+  const [pendingJobs, setPendingJobs] = useState<PendingJob[]>([]);
+
+  useEffect(() => {
+    for (const printer of printers) {
+      const job = printer.lastCompletedJob;
+      if (job && job.completedAt !== (lastSeenJobRefs.current[printer.id] ?? null)) {
+        lastSeenJobRefs.current[printer.id] = job.completedAt;
+        setPendingJobs((prev) => {
+          const already = prev.some((p) => p.printer.id === printer.id);
+          return already ? prev : [...prev, { printer, job }];
+        });
+      }
+    }
+  }, [printers]);
 
   function loadDemo() {
     importSpools(demoSpools);
@@ -116,8 +142,28 @@ export default function Dashboard() {
             />
           </div>
 
-          {/* Printer widget */}
-          <PrinterWidget />
+          {/* Printer widgets */}
+          {(serverOnline ? printers : []).length > 0 ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
+              {printers.map((p) => (
+                <PrinterWidget key={p.id} printer={p} serverOnline={serverOnline} />
+              ))}
+            </div>
+          ) : (
+            <div className="mb-4">
+              <PrinterWidget
+                printer={{
+                  id: 'offline', name: 'Printer Bridge',
+                  connection: 'disconnected',
+                  printer: { gcodeState: 'unknown', progress: 0, remainingMinutes: null,
+                    currentFile: null, layerCurrent: null, layerTotal: null,
+                    bedTempC: null, nozzleTempC: null, wifiSignal: null, speedLevel: null },
+                  lastUpdated: null, lastCompletedJob: null,
+                }}
+                serverOnline={false}
+              />
+            </div>
+          )}
 
           {/* Chart + Top Products */}
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-4">
@@ -221,6 +267,15 @@ export default function Dashboard() {
             </p>
           </div>
         </>
+      )}
+
+      {pendingJobs[0] && (
+        <JobCompleteModal
+          printerId={pendingJobs[0].printer.id}
+          printerName={pendingJobs[0].printer.name}
+          job={pendingJobs[0].job}
+          onDismiss={() => setPendingJobs((prev) => prev.slice(1))}
+        />
       )}
     </div>
   );

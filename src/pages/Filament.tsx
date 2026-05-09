@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { useFilamentStore } from '../stores/filamentStore';
 import type { FilamentSpool } from '../types';
+import { usePrinterStatus } from '../hooks/usePrinterStatus';
 import { filamentCostPerG } from '../lib/metrics';
 import { exportToCsv, parseCsv } from '../lib/csv';
 import Modal from '../components/ui/Modal';
@@ -161,6 +162,87 @@ function RemainBar({ pct }: { pct: number }) {
         <div className={`${color} h-full rounded-full`} style={{ width: `${pct}%` }} />
       </div>
       <span className="text-xs text-slate-500 w-8 text-right">{Math.round(pct)}%</span>
+    </div>
+  );
+}
+
+const AMS_SLOTS = [0, 1, 2, 3];
+
+function PrinterAmsSlots({ printerId, printerName }: { printerId: string; printerName: string }) {
+  const spools          = useFilamentStore((s) => s.spools);
+  const amsMappings     = useFilamentStore((s) => s.amsMappings);
+  const setAmsMapping   = useFilamentStore((s) => s.setAmsMapping);
+  const clearAmsMapping = useFilamentStore((s) => s.clearAmsMapping);
+
+  function getSpoolId(slot: number): string {
+    return amsMappings.find((m) => m.printerId === printerId && m.amsSlot === slot)?.spoolId ?? '';
+  }
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-slate-600 mb-2">{printerName}</p>
+      <div className="space-y-2">
+        {AMS_SLOTS.map((slot) => {
+          const spoolId = getSpoolId(slot);
+          return (
+            <div key={slot} className="flex items-center gap-3">
+              <span className="font-mono text-xs bg-[#1e2a3a]/10 text-[#1e2a3a] px-2 py-1 rounded shrink-0 w-14 text-center">
+                AMS {slot + 1}
+              </span>
+              <select
+                value={spoolId}
+                onChange={(e) =>
+                  e.target.value
+                    ? setAmsMapping(printerId, slot, e.target.value)
+                    : clearAmsMapping(printerId, slot)
+                }
+                className="flex-1 text-[16px] sm:text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#f97316]"
+              >
+                <option value="">— Unassigned —</option>
+                {spools.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.brand} {s.material} {s.color} ({s.weightRemainingG}g)
+                  </option>
+                ))}
+              </select>
+              {spoolId && (
+                <button
+                  onClick={() => clearAmsMapping(printerId, slot)}
+                  className="text-xs text-slate-400 hover:text-red-500 transition-colors shrink-0 py-1.5 px-1"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AmsMappingSection() {
+  const { printers, serverOnline } = usePrinterStatus();
+  const spools = useFilamentStore((s) => s.spools);
+
+  const visiblePrinters = serverOnline && printers.length > 0
+    ? printers
+    : [{ id: 'p1s', name: 'Bambu Lab P1S' }, { id: 'h2s', name: 'Bambu Lab H2S' }];
+
+  return (
+    <div className="mt-6 bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+      <p className="text-sm font-semibold text-[#1e2a3a] mb-1">AMS Slot Mapping</p>
+      <p className="text-xs text-slate-400 mb-4">
+        Link each AMS tray to a spool so filament is auto-deducted after a print.
+      </p>
+      <div className="space-y-6">
+        {visiblePrinters.map((p) => (
+          <PrinterAmsSlots key={p.id} printerId={p.id} printerName={p.name} />
+        ))}
+      </div>
+      {spools.length === 0 && (
+        <p className="text-xs text-slate-400 mt-4">Add spools above before mapping AMS slots.</p>
+      )}
     </div>
   );
 }
@@ -385,6 +467,9 @@ export default function Filament() {
           </div>
         </div>
       )}
+
+      {/* AMS slot mapping */}
+      <AmsMappingSection />
 
       {/* Add/Edit modal */}
       {modal !== null && (

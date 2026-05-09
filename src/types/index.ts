@@ -33,3 +33,24 @@ export interface SaleEntry {
   soldAt: string; // ISO date
   platform: string; // Etsy, local, etc.
 }
+
+export interface OrderItem {
+  productId: string;
+  quantity: number;
+  unitPrice: number;
+}
+
+export type OrderStatus = 'new' | 'printing' | 'printed' | 'shipped';
+
+export interface Order {
+  id: string;
+  orderNumber: string;
+  platform: string;
+  customerName: string;
+  status: OrderStatus;
+  items: OrderItem[];
+  shippingCost: number;
+  platformFeePercent: number;
+  notes: string;
+  createdAt: string; // YYYY-MM-DD
+}

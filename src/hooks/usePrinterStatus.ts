@@ -25,7 +25,9 @@ export interface CompletedJob {
   filamentUsedG: number | null;
 }
 
-export interface PrinterStatus {
+export interface PrinterEntry {
+  id: string;
+  name: string;
   connection: 'disconnected' | 'connecting' | 'connected';
   printer: PrinterState;
   lastUpdated: string | null;
@@ -33,15 +35,15 @@ export interface PrinterStatus {
 }
 
 export interface UsePrinterStatusResult {
-  status: PrinterStatus | null;
+  printers: PrinterEntry[];
   serverOnline: boolean;
   loading: boolean;
 }
 
 export function usePrinterStatus(): UsePrinterStatusResult {
-  const [status, setStatus]           = useState<PrinterStatus | null>(null);
+  const [printers, setPrinters]         = useState<PrinterEntry[]>([]);
   const [serverOnline, setServerOnline] = useState(false);
-  const [loading, setLoading]         = useState(true);
+  const [loading, setLoading]           = useState(true);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -55,8 +57,8 @@ export function usePrinterStatus(): UsePrinterStatusResult {
         const res = await fetch(`${SERVER_URL}/api/status`, { signal: ac.signal });
         clearTimeout(timer);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data: PrinterStatus = await res.json();
-        setStatus(data);
+        const data: { printers: Record<string, PrinterEntry> } = await res.json();
+        setPrinters(Object.values(data.printers));
         setServerOnline(true);
       } catch {
         clearTimeout(timer);
@@ -74,5 +76,18 @@ export function usePrinterStatus(): UsePrinterStatusResult {
     };
   }, []);
 
-  return { status, serverOnline, loading };
+  return { printers, serverOnline, loading };
+}
+
+/**
+ * Tell the server the completed job for a specific printer has been processed.
+ */
+export async function acknowledgeJob(printerId: string): Promise<void> {
+  try {
+    await fetch(`${SERVER_URL}/api/job/acknowledge?printer=${encodeURIComponent(printerId)}`, {
+      method: 'POST',
+    });
+  } catch {
+    // server offline — nothing to acknowledge
+  }
 }

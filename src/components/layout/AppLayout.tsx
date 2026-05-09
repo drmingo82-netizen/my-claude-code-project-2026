@@ -2,6 +2,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: '📊' },
+  { to: '/orders', label: 'Orders', icon: '📦' },
   { to: '/filament', label: 'Filament', icon: '🧵' },
   { to: '/products', label: 'Products', icon: '🖨️' },
   { to: '/sales', label: 'Sales', icon: '💰' },
