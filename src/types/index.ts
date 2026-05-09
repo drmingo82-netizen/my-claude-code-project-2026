@@ -38,6 +38,7 @@ export interface OrderItem {
   productId: string;
   quantity: number;
   unitPrice: number;
+  etsyTitle?: string; // original Etsy listing title when productId couldn't be matched
 }
 
 export type OrderStatus = 'new' | 'printing' | 'printed' | 'shipped';
@@ -53,4 +54,5 @@ export interface Order {
   platformFeePercent: number;
   notes: string;
   createdAt: string; // YYYY-MM-DD
+  etsyReceiptId?: number; // deduplication key for Etsy-synced orders
 }

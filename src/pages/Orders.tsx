@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useOrderStore } from '../stores/orderStore';
 import { useProductStore } from '../stores/productStore';
 import { useFilamentStore } from '../stores/filamentStore';
@@ -6,6 +6,15 @@ import type { Order, OrderItem, OrderStatus } from '../types';
 import type { FilamentSpool, Product } from '../types';
 import { unitCost } from '../lib/metrics';
 import { exportToCsv } from '../lib/csv';
+import {
+  startEtsyOAuth,
+  handleEtsyCallback,
+  isEtsyConnected,
+  clearEtsyAuth,
+  getLastSync,
+  syncEtsyOrders,
+  type SyncResult,
+} from '../lib/etsy';
 import Modal from '../components/ui/Modal';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 
@@ -53,6 +62,15 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 const fieldCls =
   'w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#f97316] focus:border-transparent transition';
+
+function relativeTime(iso: string): string {
+  const min = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return `${Math.floor(hr / 24)}d ago`;
+}
 
 // ── Financials helper ─────────────────────────────────────────────────────────
 
@@ -107,7 +125,10 @@ function validate(f: FormData): Record<string, string> {
     e.items = 'Add at least one item';
   } else {
     for (let i = 0; i < f.items.length; i++) {
-      if (!f.items[i].productId) { e.items = `Item ${i + 1}: select a product`; break; }
+      if (!f.items[i].productId && !f.items[i].etsyTitle) {
+        e.items = `Item ${i + 1}: select a product`;
+        break;
+      }
       if (f.items[i].quantity < 1) { e.items = `Item ${i + 1}: qty must be ≥ 1`; break; }
     }
   }
@@ -245,7 +266,9 @@ function OrderForm({ initial, onSave, onClose }: OrderFormProps) {
                   onChange={(e) => handleItemChange(idx, 'productId', e.target.value)}
                   className={fieldCls}
                 >
-                  <option value="">— Product —</option>
+                  <option value="">
+                    {item.etsyTitle ? `Unmatched: ${item.etsyTitle}` : '— Product —'}
+                  </option>
                   {products.map((p) => (
                     <option key={p.id} value={p.id}>{p.sku} — {p.name}</option>
                   ))}
@@ -366,6 +389,109 @@ function OrderForm({ initial, onSave, onClose }: OrderFormProps) {
   );
 }
 
+// ── Etsy Sync Banner ─────────────────────────────────────────────────────────
+
+function EtsySyncBanner() {
+  const addOrder = useOrderStore((s) => s.addOrder);
+  const [connected, setConnected] = useState(isEtsyConnected());
+  const [syncing, setSyncing] = useState(false);
+  const [result, setResult] = useState<SyncResult | null>(null);
+  const [err, setErr] = useState('');
+  const configured = Boolean(import.meta.env.VITE_ETSY_CLIENT_ID);
+  const lastSync = getLastSync();
+
+  async function handleSync() {
+    setSyncing(true);
+    setResult(null);
+    setErr('');
+    try {
+      const { orders } = useOrderStore.getState();
+      const { products } = useProductStore.getState();
+      const r = await syncEtsyOrders(orders, products, addOrder);
+      setResult(r);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Sync failed');
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  function handleDisconnect() {
+    clearEtsyAuth();
+    setConnected(false);
+    setResult(null);
+    setErr('');
+  }
+
+  if (!configured) {
+    return (
+      <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-400">
+        Etsy sync requires{' '}
+        <code className="font-mono bg-white border border-slate-200 px-1 rounded">
+          VITE_ETSY_CLIENT_ID
+        </code>{' '}
+        — add it to Vercel env vars to enable.
+      </div>
+    );
+  }
+
+  if (!connected) {
+    return (
+      <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-dashed border-[#f97316]/40 bg-orange-50/30 px-4 py-3">
+        <div>
+          <p className="text-xs font-medium text-slate-700">Sync orders from Etsy</p>
+          <p className="text-[10px] text-slate-400 mt-0.5">
+            Automatically import receipts from your Etsy shop
+          </p>
+          {err && <p className="text-[10px] text-red-500 mt-1">{err}</p>}
+        </div>
+        <button
+          onClick={() => startEtsyOAuth().catch((e: Error) => setErr(e.message))}
+          className="shrink-0 text-xs px-3 py-1.5 rounded-lg bg-[#f97316] text-white hover:bg-[#ea6d0f] transition-colors font-medium whitespace-nowrap"
+        >
+          Connect Etsy →
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-5 rounded-xl border border-emerald-100 bg-emerald-50/40 px-4 py-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+            ✓ Etsy connected
+          </span>
+          <span className="text-[10px] text-slate-400">
+            {lastSync ? `Last sync ${relativeTime(lastSync)}` : 'Never synced'}
+          </span>
+          {result && (
+            <span className="text-[10px] font-medium text-emerald-600">
+              {result.created > 0 ? `${result.created} imported` : 'Already up to date'}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50 font-medium"
+          >
+            {syncing ? '↺ Syncing…' : '↺ Sync Now'}
+          </button>
+          <button
+            onClick={handleDisconnect}
+            className="text-[10px] text-slate-400 hover:text-red-500 transition-colors"
+          >
+            Disconnect
+          </button>
+        </div>
+      </div>
+      {err && <p className="text-xs text-red-500 mt-2">{err}</p>}
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 type StatusFilter = 'all' | OrderStatus;
@@ -387,6 +513,22 @@ export default function Orders() {
   const [modal, setModal] = useState<'add' | { order: Order } | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [etsyAuthError, setEtsyAuthError] = useState('');
+
+  // Handle Etsy OAuth redirect callback (?code=...&state=...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const state = params.get('state');
+    if (code && state) {
+      handleEtsyCallback(code, state)
+        .then(() => window.location.replace('/orders'))
+        .catch((e: Error) => {
+          setEtsyAuthError(e.message);
+          window.history.replaceState({}, '', '/orders');
+        });
+    }
+  }, []);
 
   const filtered = useMemo(
     () =>
@@ -488,6 +630,16 @@ export default function Orders() {
         </div>
       </div>
 
+      {/* Etsy OAuth error (rare, only shown if callback fails) */}
+      {etsyAuthError && (
+        <div className="mb-4 rounded-lg bg-red-50 border border-red-100 px-4 py-2 text-xs text-red-600">
+          Etsy auth failed: {etsyAuthError}
+        </div>
+      )}
+
+      {/* Etsy sync */}
+      <EtsySyncBanner />
+
       {/* Summary cards */}
       {orders.length > 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
@@ -563,7 +715,8 @@ export default function Orders() {
             const itemSummary = order.items
               .map((item) => {
                 const p = products.find((pr) => pr.id === item.productId);
-                return p ? `${item.quantity}× ${p.name}` : `${item.quantity}× (deleted)`;
+                const name = p ? p.name : (item.etsyTitle ?? '(deleted)');
+                return `${item.quantity}× ${name}`;
               })
               .join(', ');
 
