@@ -12,6 +12,7 @@ import { useProductStore } from '../stores/productStore';
 import { useSalesStore } from '../stores/salesStore';
 import { computeKPIs, monthlyRevenueChart, topProducts } from '../lib/metrics';
 import { demoSpools, demoProducts, demoSales } from '../lib/demoData';
+import PrinterWidget from '../components/PrinterWidget';
 
 const fmt = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
@@ -114,6 +115,9 @@ export default function Dashboard() {
               sub={`${products.length} active SKUs`}
             />
           </div>
+
+          {/* Printer widget */}
+          <PrinterWidget />
 
           {/* Chart + Top Products */}
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-4">
