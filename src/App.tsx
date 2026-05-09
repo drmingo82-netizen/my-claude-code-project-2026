@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard';
 import Filament from './pages/Filament';
 import Products from './pages/Products';
 import Calculator from './pages/Calculator';
+import Sales from './pages/Sales';
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="filament" element={<Filament />} />
           <Route path="products" element={<Products />} />
+          <Route path="sales" element={<Sales />} />
           <Route path="calculator" element={<Calculator />} />
         </Route>
       </Routes>
