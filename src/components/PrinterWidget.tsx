@@ -51,10 +51,10 @@ function StatusBadge({ printer, serverOnline }: { printer: PrinterEntry | null; 
   if (gs === 'PAUSE')
     return <><Dot color="bg-amber-400" /><span className="text-amber-400">Paused</span></>;
   if (gs === 'FINISH')
-    return <><Dot color="bg-emerald-400" /><span className="text-emerald-400">Complete</span></>;
+    return <><Dot color="bg-slate-400" /><span className="text-white/50">Idle</span></>;
   if (gs === 'FAILED')
     return <><Dot color="bg-red-400" /><span className="text-red-400">Error</span></>;
-  return <><Dot color="bg-emerald-400" /><span className="text-emerald-400">Ready</span></>;
+  return <><Dot color="bg-slate-400" /><span className="text-white/50">Idle</span></>;
 }
 
 interface Props {
@@ -93,11 +93,8 @@ export default function PrinterWidget({ printer, serverOnline }: Props) {
       {serverOnline && printer.connection === 'disconnected' && (
         <p className="text-xs text-white/40">Printer not responding. Check WiFi and access code.</p>
       )}
-      {connected && gs === 'IDLE' && (
+      {connected && (gs === 'IDLE' || gs === 'unknown' || gs === '') && (
         <p className="text-xs text-white/40">Ready to print.</p>
-      )}
-      {connected && gs === 'unknown' && (
-        <p className="text-xs text-white/40">Waiting for printer data…</p>
       )}
 
       {connected && gs === 'RUNNING' && (
