@@ -40,9 +40,7 @@ function ProgressBar({ pct, color = 'bg-[#f97316]' }: { pct: number; color?: str
 function StatusBadge({ printer, serverOnline }: { printer: PrinterEntry | null; serverOnline: boolean }) {
   if (!serverOnline)
     return <><Dot color="bg-slate-300" /><span className="text-white/40">Bridge offline</span></>;
-  if (!printer || printer.connection === 'connecting')
-    return <><Dot color="bg-amber-400 animate-pulse" /><span className="text-amber-400">Connecting…</span></>;
-  if (printer.connection === 'disconnected')
+  if (!printer || printer.connection === 'disconnected')
     return <><Dot color="bg-white/30" /><span className="text-white/40">Disconnected</span></>;
 
   const gs = printer.printer.gcodeState;
@@ -87,13 +85,11 @@ export default function PrinterWidget({ printer, serverOnline }: Props) {
           <code className="bg-white/10 px-1 py-0.5 rounded text-white/70 text-[10px]">pm2 start ecosystem.config.cjs</code>.
         </p>
       )}
-      {serverOnline && printer.connection === 'connecting' && (
-        <p className="text-xs text-white/40">Reaching printer at configured IP…</p>
-      )}
       {serverOnline && printer.connection === 'disconnected' && (
         <p className="text-xs text-white/40">Printer not responding. Check WiFi and access code.</p>
       )}
-      {connected && (gs === 'IDLE' || gs === 'unknown' || gs === '') && (
+      {serverOnline && printer.connection !== 'disconnected' &&
+        (gs === 'IDLE' || gs === 'unknown' || gs === '') && (
         <p className="text-xs text-white/40">Ready to print.</p>
       )}
 

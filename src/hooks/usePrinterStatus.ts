@@ -5,7 +5,7 @@ const POLL_INTERVAL_MS = 5_000;
 const FETCH_TIMEOUT_MS = 4_000;
 
 export interface PrinterState {
-  gcodeState: 'IDLE' | 'RUNNING' | 'PAUSE' | 'FAILED' | 'FINISH' | 'unknown';
+  gcodeState: 'IDLE' | 'RUNNING' | 'PAUSE' | 'FAILED' | 'FINISH' | 'unknown' | '';
   progress: number;
   remainingMinutes: number | null;
   currentFile: string | null;

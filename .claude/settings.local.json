@@ -18,7 +18,22 @@
       "Bash(vercel deploy *)",
       "Bash(npm show *)",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('description:', d.get\\('description',''\\)\\); print\\('main:', d.get\\('main',''\\)\\); print\\('exports:', list\\(d.get\\('exports',{}\\).keys\\(\\)\\)[:10]\\); print\\('keywords:', d.get\\('keywords',[]\\)\\)\")",
-      "Bash(node src/index.js)"
+      "Bash(node src/index.js)",
+      "Bash(pm2 start *)",
+      "Bash(pm2 startup *)",
+      "Bash(vercel --prod)",
+      "Bash(sudo -n true)",
+      "Bash(pm2 save *)",
+      "Bash(launchctl list *)",
+      "Bash(pm2 status *)",
+      "Bash(pm2 logs *)",
+      "Bash(pm2 restart *)",
+      "Bash(chmod +x *)",
+      "WebFetch(domain:3dprintforce.com)",
+      "Bash(kill %1)",
+      "Bash(vercel inspect *)",
+      "Bash(vercel logs *)",
+      "Bash(vercel env *)"
     ]
   }
 }

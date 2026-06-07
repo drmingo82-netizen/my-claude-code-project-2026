@@ -117,7 +117,7 @@ export default function Dashboard() {
   const products = useProductStore((s) => s.products);
   const importProducts = useProductStore((s) => s.importProducts);
   const sales = useSalesStore((s) => s.sales);
-  const hasData = sales.length > 0 || products.length > 0;
+  const hasData = spools.length > 0 || sales.length > 0 || products.length > 0;
 
   const { printers, serverOnline } = usePrinterStatus();
   const lastSeenJobRefs = useRef<Record<string, string | null>>({});

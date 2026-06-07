@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import type { FilamentSpool } from '../types';
 
 export interface AmsMapping {
@@ -60,6 +60,10 @@ export const useFilamentStore = create<FilamentStore>()(
           ),
         })),
     }),
-    { name: 'tactile-filament' }
+    {
+      name: 'tactile-filament',
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({ spools: state.spools, amsMappings: state.amsMappings }),
+    }
   )
 );
