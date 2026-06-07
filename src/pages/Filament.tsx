@@ -16,10 +16,21 @@ import { useLocationStore } from '../stores/locationStore';
 import { useAmsStatus, flattenAmsTrays } from '../hooks/useAmsStatus';
 import { colorMatches, isDark, generateColorFromName } from '../utils/colorUtils';
 
-const MATERIALS = [
-  'PLA', 'PLA Basic', 'PLA Matte', 'PLA Silk', 'PLA Metal', 'PLA Sparkle', 'PLA+',
-  'PETG', 'ABS', 'ASA', 'TPU', 'Nylon', 'Resin', 'Other',
+const MATERIAL_CATEGORIES: { group: string; items: string[] }[] = [
+  { group: 'PLA', items: [
+    'PLA Basic', 'PLA Matte', 'PLA Tough+', 'PLA Silk', 'PLA Silk+',
+    'PLA Silk Multi-Color', 'PLA Translucent', 'PLA Galaxy', 'PLA Metal',
+    'PLA Marble', 'PLA Wood', 'PLA Glow', 'PLA Sparkle', 'PLA Basic Gradient',
+    'PLA-CF', 'PLA Aero', 'PLA+', 'PLA (Generic)',
+  ]},
+  { group: 'PETG', items: ['PETG Basic', 'PETG-CF', 'PETG HF', 'PETG (Generic)'] },
+  { group: 'ABS / ASA', items: ['ABS', 'ASA', 'ABS-CF', 'ASA-CF'] },
+  { group: 'TPU', items: ['TPU 95A', 'TPU (Generic)'] },
+  { group: 'Engineering', items: ['PA (Nylon)', 'PA-CF', 'PA-GF', 'PC', 'PET-CF', 'PPS', 'PPS-CF', 'PAHT-CF'] },
+  { group: 'Support & Specialty', items: ['PVA', 'HIPS', 'BVOH', 'Resin'] },
+  { group: 'Other', items: ['Other'] },
 ];
+const MATERIALS = MATERIAL_CATEGORIES.flatMap(c => c.items);
 
 const fmt2 = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
@@ -110,13 +121,20 @@ function SpoolForm({ initial, onSave, onClose }: SpoolFormProps) {
           placeholder="e.g. Hatchbox"
           error={errors.brand}
         />
-        <FormField
-          as="select"
-          label="Material"
-          value={form.material}
-          onChange={(e) => set('material', (e.target as HTMLSelectElement).value)}
-          options={MATERIALS.map((m) => ({ value: m, label: m }))}
-        />
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">Material</label>
+          <select
+            value={form.material}
+            onChange={(e) => set('material', e.target.value)}
+            className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#f97316] focus:border-transparent"
+          >
+            {MATERIAL_CATEGORIES.map((cat) => (
+              <optgroup key={cat.group} label={cat.group}>
+                {cat.items.map((m) => <option key={m} value={m}>{m}</option>)}
+              </optgroup>
+            ))}
+          </select>
+        </div>
       </div>
       <FormField
         label="Color Name"
@@ -629,9 +647,11 @@ export default function Filament() {
 
   const locations = useLocationStore((s) => s.locations);
   const [viewMode, setViewMode] = useState<'list' | 'location'>('list');
+  const [materialFilter, setMaterialFilter] = useState<string>('all');
 
-  const visibleSpools =
-    spoolFilter === 'incomplete' ? spools.filter((s) => s.costPerSpool === 0) : spools;
+  const visibleSpools = spools
+    .filter((s) => spoolFilter !== 'incomplete' || s.costPerSpool === 0)
+    .filter((s) => materialFilter === 'all' || s.material === materialFilter);
 
   // Build location groups for grouped view
   const locationGroups = (() => {
@@ -812,23 +832,42 @@ export default function Filament() {
         {importError && <p className="text-xs text-red-500">{importError}</p>}
       </div>
 
-      {/* View mode toggle */}
-      {spools.length > 0 && locations.length > 0 && (
-        <div className="flex items-center gap-1 mb-3">
-          {(['list', 'location'] as const).map((mode) => (
-            <button
-              key={mode}
-              onClick={() => setViewMode(mode)}
-              className={[
-                'text-xs font-medium px-3 py-1.5 rounded-lg transition-colors',
-                viewMode === mode
-                  ? 'bg-[#1e2a3a] text-white'
-                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200',
-              ].join(' ')}
-            >
-              {mode === 'list' ? 'List' : '📍 By Location'}
-            </button>
-          ))}
+      {/* Material filter + view mode toggle */}
+      {spools.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <select
+            value={materialFilter}
+            onChange={(e) => setMaterialFilter(e.target.value)}
+            className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-600 focus:outline-none focus:ring-1 focus:ring-[#f97316] bg-white"
+          >
+            <option value="all">All materials</option>
+            {MATERIAL_CATEGORIES.map((cat) => (
+              <optgroup key={cat.group} label={cat.group}>
+                {cat.items
+                  .filter((m) => spools.some((s) => s.material === m))
+                  .map((m) => <option key={m} value={m}>{m}</option>)}
+              </optgroup>
+            ))}
+          </select>
+
+          {locations.length > 0 && (
+            <div className="flex items-center gap-1">
+              {(['list', 'location'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setViewMode(mode)}
+                  className={[
+                    'text-xs font-medium px-3 py-1.5 rounded-lg transition-colors',
+                    viewMode === mode
+                      ? 'bg-[#1e2a3a] text-white'
+                      : 'bg-slate-100 text-slate-500 hover:bg-slate-200',
+                  ].join(' ')}
+                >
+                  {mode === 'list' ? 'List' : '📍 By Location'}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

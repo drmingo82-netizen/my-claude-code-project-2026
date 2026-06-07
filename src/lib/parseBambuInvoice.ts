@@ -70,22 +70,52 @@ function isFilamentSku(sku: string): boolean {
 
 function normalizeMaterial(raw: string): string {
   const s = raw.toLowerCase().trim();
-  if (s.startsWith('pla matte'))       return 'PLA Matte';
-  if (s.startsWith('pla basic'))       return 'PLA Basic';
-  if (s.startsWith('pla silk'))        return 'PLA Silk';
-  if (s.startsWith('pla metal'))       return 'PLA';
-  if (s.startsWith('pla translucent')) return 'PLA';
-  if (s.startsWith('pla sparkle'))     return 'PLA Sparkle';
+  // PLA family — check most-specific prefixes first
+  if (s.startsWith('pla basic gradient'))              return 'PLA Basic Gradient';
+  if (s.startsWith('pla basic'))                       return 'PLA Basic';
+  if (s.startsWith('pla matte'))                       return 'PLA Matte';
+  if (s.startsWith('pla tough+') || s.startsWith('pla tough +')) return 'PLA Tough+';
+  if (s.startsWith('pla silk multi'))                  return 'PLA Silk Multi-Color';
+  if (s.startsWith('pla silk+') || s.startsWith('pla silk +')) return 'PLA Silk+';
+  if (s.startsWith('pla silk'))                        return 'PLA Silk';
+  if (s.startsWith('pla translucent'))                 return 'PLA Translucent';
+  if (s.startsWith('pla galaxy'))                      return 'PLA Galaxy';
+  if (s.startsWith('pla metal'))                       return 'PLA Metal';
+  if (s.startsWith('pla marble'))                      return 'PLA Marble';
+  if (s.startsWith('pla wood'))                        return 'PLA Wood';
+  if (s.startsWith('pla glow'))                        return 'PLA Glow';
+  if (s.startsWith('pla sparkle'))                     return 'PLA Sparkle';
+  if (s.startsWith('pla-cf') || s.startsWith('pla cf')) return 'PLA-CF';
+  if (s.startsWith('pla aero'))                        return 'PLA Aero';
   if (s.startsWith('pla+') || s.startsWith('pla plus')) return 'PLA+';
-  if (s.startsWith('pla'))             return 'PLA';
-  if (s.startsWith('petg hf'))         return 'PETG';
-  if (s.startsWith('petg cf'))         return 'PETG';
-  if (s.startsWith('petg'))            return 'PETG';
-  if (s.startsWith('abs'))             return 'ABS';
-  if (s.startsWith('asa'))             return 'ASA';
-  if (s.startsWith('tpu'))             return 'TPU';
-  if (s.includes('nylon') || s.includes('pa-cf') || s.includes('pa12') ||
-      s.includes('paht') || s.includes('ppa'))         return 'Nylon';
+  if (s.startsWith('pla'))                             return 'PLA (Generic)';
+  // PETG family
+  if (s.startsWith('petg hf'))                         return 'PETG HF';
+  if (s.startsWith('petg-cf') || s.startsWith('petg cf')) return 'PETG-CF';
+  if (s.startsWith('petg basic'))                      return 'PETG Basic';
+  if (s.startsWith('petg'))                            return 'PETG (Generic)';
+  // ABS / ASA
+  if (s.startsWith('abs-cf') || s.startsWith('abs cf')) return 'ABS-CF';
+  if (s.startsWith('abs'))                             return 'ABS';
+  if (s.startsWith('asa-cf') || s.startsWith('asa cf')) return 'ASA-CF';
+  if (s.startsWith('asa'))                             return 'ASA';
+  // TPU
+  if (s.startsWith('tpu 95a'))                         return 'TPU 95A';
+  if (s.startsWith('tpu'))                             return 'TPU (Generic)';
+  // Engineering
+  if (s.includes('paht-cf') || s.includes('paht cf')) return 'PAHT-CF';
+  if (s.includes('ppa-cf') || s.includes('ppa cf'))   return 'PA-CF';
+  if (s.includes('pa-cf') || s.includes('pa cf'))     return 'PA-CF';
+  if (s.includes('pa-gf') || s.includes('pa gf'))     return 'PA-GF';
+  if (s.startsWith('pa') || s.includes('nylon') || s.includes('pa12')) return 'PA (Nylon)';
+  if (s.includes('pet-cf'))                            return 'PET-CF';
+  if (s.startsWith('pps-cf') || s.startsWith('pps cf')) return 'PPS-CF';
+  if (s.startsWith('pps'))                             return 'PPS';
+  if (s.startsWith('pc'))                              return 'PC';
+  // Support
+  if (s.startsWith('pva'))                             return 'PVA';
+  if (s.startsWith('hips'))                            return 'HIPS';
+  if (s.startsWith('bvoh'))                            return 'BVOH';
   return 'Other';
 }
 

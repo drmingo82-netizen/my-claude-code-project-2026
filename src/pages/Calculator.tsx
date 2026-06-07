@@ -30,6 +30,13 @@ function marginLabel(pct: number): string {
   return 'Loss';
 }
 
+const PRINTERS: { label: string; watts: number }[] = [
+  { label: 'Bambu Lab P1S',            watts: 350 },
+  { label: 'Bambu Lab H2S',            watts: 320 },
+  { label: 'FlashForge Adventurer 5M', watts: 200 },
+  { label: 'Custom',                   watts: 0   },
+];
+
 const PLATFORMS: { label: string; fee: number; note: string }[] = [
   { label: 'Local / Direct', fee: 0, note: '0% fees' },
   { label: 'Etsy', fee: 11.5, note: '~11.5% (txn + payment)' },
@@ -84,6 +91,7 @@ interface ResultsProps {
   totalCost: number;
   filamentCost: number;
   laborCost: number;
+  electricityCost: number;
   otherCosts: number;
   sellingPrice: number;
   platformFeePct: number;
@@ -96,6 +104,7 @@ function Results({
   totalCost,
   filamentCost,
   laborCost,
+  electricityCost,
   otherCosts,
   sellingPrice,
   platformFeePct,
@@ -156,6 +165,7 @@ function Results({
         <div className="space-y-2 text-sm">
           <Row label="Filament" value={fmtC(filamentCost)} muted />
           <Row label="Labor" value={fmtC(laborCost)} muted />
+          {electricityCost > 0 && <Row label="Electricity" value={fmtC(electricityCost)} muted />}
           <Row label="Other costs" value={fmtC(otherCosts)} muted />
           <div className="border-t border-slate-100 pt-2">
             <Row label="Total cost" value={fmtC(totalCost)} bold />
@@ -271,6 +281,10 @@ interface CustomState {
   filamentUsedG: number;
   laborHours: number;
   laborRatePerHour: number;
+  printHours: number;
+  printerIdx: number;
+  printerWatts: number;
+  electricityRate: number;
   otherCosts: number;
   sellingPrice: number;
 }
@@ -286,6 +300,10 @@ function CustomTab({
     filamentUsedG: 50,
     laborHours: 0.5,
     laborRatePerHour: 20,
+    printHours: 1,
+    printerIdx: 0,
+    printerWatts: PRINTERS[0].watts,
+    electricityRate: 0.12,
     otherCosts: 1,
     sellingPrice: 15,
   });
@@ -314,7 +332,17 @@ function CustomTab({
 
   const filamentCost = c.filamentCostPerG * c.filamentUsedG;
   const laborCost = c.laborHours * c.laborRatePerHour;
-  const totalCost = filamentCost + laborCost + c.otherCosts;
+  const electricityCost = (c.printerWatts / 1000) * c.printHours * c.electricityRate;
+  const totalCost = filamentCost + laborCost + electricityCost + c.otherCosts;
+
+  function handlePrinterChange(idx: number) {
+    const printer = PRINTERS[idx];
+    setC((prev) => ({
+      ...prev,
+      printerIdx: idx,
+      printerWatts: printer.watts > 0 ? printer.watts : prev.printerWatts,
+    }));
+  }
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -340,11 +368,45 @@ function CustomTab({
           <Field label="Cost per gram ($)" value={c.filamentCostPerG} onChange={(v) => s('filamentCostPerG', v)} step={0.0001} />
           <Field label="Amount used (g)" value={c.filamentUsedG} onChange={(v) => s('filamentUsedG', v)} step={1} />
         </div>
+
         <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4 space-y-3">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Labor</p>
           <Field label="Hours" value={c.laborHours} onChange={(v) => s('laborHours', v)} step={0.25} />
           <Field label="Rate ($/hr)" value={c.laborRatePerHour} onChange={(v) => s('laborRatePerHour', v)} step={0.5} />
         </div>
+
+        <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4 space-y-3">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Electricity</p>
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">Printer</label>
+            <div className="flex flex-wrap gap-1.5">
+              {PRINTERS.map((p, i) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => handlePrinterChange(i)}
+                  className={[
+                    'text-xs px-2.5 py-1.5 rounded-lg border transition-colors',
+                    c.printerIdx === i
+                      ? 'bg-[#1e2a3a] text-white border-[#1e2a3a]'
+                      : 'border-slate-200 text-slate-600 hover:bg-slate-50',
+                  ].join(' ')}
+                >
+                  {p.label}
+                  {p.watts > 0 && <span className="ml-1 opacity-60 text-[10px]">{p.watts}W</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+          <Field label="Power draw (W)" value={c.printerWatts} onChange={(v) => s('printerWatts', v)} step={10} min={0} suffix="W" />
+          <Field label="Print time (h)" value={c.printHours} onChange={(v) => s('printHours', v)} step={0.25} min={0} suffix="h" />
+          <Field label="Rate ($/kWh)" value={c.electricityRate} onChange={(v) => s('electricityRate', v)} step={0.01} min={0} prefix="$" />
+          <div className="bg-slate-50 rounded-lg px-3 py-2 flex justify-between text-xs">
+            <span className="text-slate-500">Electricity cost</span>
+            <span className="font-semibold text-slate-700">{fmtC(electricityCost)}</span>
+          </div>
+        </div>
+
         <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4 space-y-3">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Pricing</p>
           <Field label="Other costs ($)" value={c.otherCosts} onChange={(v) => s('otherCosts', v)} />
@@ -355,6 +417,7 @@ function CustomTab({
         totalCost={totalCost}
         filamentCost={filamentCost}
         laborCost={laborCost}
+        electricityCost={electricityCost}
         otherCosts={c.otherCosts}
         sellingPrice={c.sellingPrice}
         platformFeePct={platformFeePct}
@@ -465,6 +528,7 @@ function ProductTab({
           totalCost={totalCost}
           filamentCost={filamentCost}
           laborCost={laborCost}
+          electricityCost={0}
           otherCosts={product.otherCosts}
           sellingPrice={sellingPrice}
           platformFeePct={platformFeePct}

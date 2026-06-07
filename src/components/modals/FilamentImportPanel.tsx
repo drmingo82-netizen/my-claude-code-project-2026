@@ -27,7 +27,24 @@ const TEMPLATE_EXAMPLE = [
 // These must be present for a valid import
 const REQUIRED_COLS = ['Brand', 'Material Type', 'Color Name', 'Spool Weight (g)', 'Purchase Price ($)'];
 
-const MATERIALS = ['PLA', 'PETG', 'ABS', 'ASA', 'TPU', 'Nylon', 'Resin', 'Other'];
+const MATERIALS = [
+  // PLA
+  'PLA Basic', 'PLA Matte', 'PLA Tough+', 'PLA Silk', 'PLA Silk+', 'PLA Silk Multi-Color',
+  'PLA Translucent', 'PLA Galaxy', 'PLA Metal', 'PLA Marble', 'PLA Wood', 'PLA Glow',
+  'PLA Sparkle', 'PLA Basic Gradient', 'PLA-CF', 'PLA Aero', 'PLA+', 'PLA (Generic)', 'PLA',
+  // PETG
+  'PETG Basic', 'PETG-CF', 'PETG HF', 'PETG (Generic)', 'PETG',
+  // ABS / ASA
+  'ABS', 'ASA', 'ABS-CF', 'ASA-CF',
+  // TPU
+  'TPU 95A', 'TPU (Generic)', 'TPU',
+  // Engineering
+  'PA (Nylon)', 'PA-CF', 'PA-GF', 'PC', 'PET-CF', 'PPS', 'PPS-CF', 'PAHT-CF', 'Nylon',
+  // Support & Specialty
+  'PVA', 'HIPS', 'BVOH', 'Resin',
+  // Other
+  'Other',
+];
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
