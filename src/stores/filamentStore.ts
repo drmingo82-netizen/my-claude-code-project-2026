@@ -15,6 +15,7 @@ interface FilamentStore {
   updateSpool: (id: string, spool: Partial<FilamentSpool>) => void;
   deleteSpool: (id: string) => void;
   importSpools: (spools: FilamentSpool[]) => void;
+  clearLocationFromSpools: (locationId: string) => void;
   setAmsMapping: (printerId: string, amsSlot: number, spoolId: string) => void;
   clearAmsMapping: (printerId: string, amsSlot: number) => void;
 }
@@ -39,6 +40,12 @@ export const useFilamentStore = create<FilamentStore>()(
           amsMappings: s.amsMappings.filter((m) => m.spoolId !== id),
         })),
       importSpools: (spools) => set({ spools }),
+      clearLocationFromSpools: (locationId) =>
+        set((s) => ({
+          spools: s.spools.map((sp) =>
+            sp.locationId === locationId ? { ...sp, locationId: undefined } : sp,
+          ),
+        })),
       setAmsMapping: (printerId, amsSlot, spoolId) =>
         set((s) => {
           const rest = s.amsMappings.filter(

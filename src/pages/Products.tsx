@@ -7,6 +7,8 @@ import { exportToCsv, parseCsv } from '../lib/csv';
 import Modal from '../components/ui/Modal';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import FormField from '../components/ui/FormField';
+import { parse3MF, formatPrintTime, type Parsed3MF } from '../lib/parse3mf';
+import ProductLabelPanel from '../components/labels/ProductLabelPanel';
 
 const CATEGORIES = [
   'Organization', 'Desk Accessories', 'Home Decor', 'Toys & Games',
@@ -79,6 +81,33 @@ function ProductForm({ initial, existingSkus, onSave, onClose }: ProductFormProp
   const set = <K extends keyof FormData>(key: K, value: FormData[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
 
+  const [parsed3MF, setParsed3MF] = useState<Parsed3MF | null>(null);
+  const [parsing3MF, setParsing3MF] = useState(false);
+  const [parseError, setParseError] = useState('');
+  const fileRef3MF = useRef<HTMLInputElement>(null);
+
+  async function handle3MFFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setParsing3MF(true);
+    setParseError('');
+    const result = await parse3MF(file);
+    if (result) {
+      setParsed3MF(result);
+    } else {
+      setParseError('Could not read 3MF data — enter values manually.');
+    }
+    setParsing3MF(false);
+    e.target.value = '';
+  }
+
+  function apply3MF() {
+    if (!parsed3MF) return;
+    set('filamentUsedG', Math.round(parsed3MF.totalGrams * 10) / 10);
+    set('printTimeHours', parsed3MF.printTimeHours);
+    setParsed3MF(null);
+  }
+
   const selectedSpool = spools.find((s) => s.id === form.filamentSpoolId);
   const filamentCost = selectedSpool
     ? (selectedSpool.costPerSpool / selectedSpool.weightTotalG) * form.filamentUsedG
@@ -133,7 +162,18 @@ function ProductForm({ initial, existingSkus, onSave, onClose }: ProductFormProp
 
       {/* Filament */}
       <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">Filament Spool</label>
+        <div className="flex items-center justify-between mb-1">
+          <label className="text-xs font-medium text-slate-600">Filament Spool</label>
+          <button
+            type="button"
+            onClick={() => fileRef3MF.current?.click()}
+            disabled={parsing3MF}
+            className="text-[10px] font-medium text-[#f97316] hover:underline disabled:opacity-50"
+          >
+            {parsing3MF ? 'Reading…' : '↑ Import 3MF'}
+          </button>
+        </div>
+        <input ref={fileRef3MF} type="file" accept=".3mf" className="hidden" onChange={handle3MFFile} />
         <select
           value={form.filamentSpoolId}
           onChange={(e) => set('filamentSpoolId', e.target.value)}
@@ -150,6 +190,35 @@ function ProductForm({ initial, existingSkus, onSave, onClose }: ProductFormProp
           <p className="text-[10px] text-slate-400 mt-1">Add spools in Filament Inventory first.</p>
         )}
       </div>
+
+      {parsed3MF && (
+        <div className="rounded-lg border border-[#f97316]/30 bg-orange-50 px-3 py-2.5 text-xs">
+          <p className="font-medium text-[#1e2a3a] mb-1.5">
+            {'Found: '}
+            {parsed3MF.filamentPerSlot.map((f) => `${f.grams.toFixed(1)}g slot ${f.slot}`).join(' / ')}
+            {' · Print time: '}
+            {formatPrintTime(parsed3MF.printTimeHours)}
+            {' — Apply?'}
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={apply3MF}
+              className="px-3 py-1 rounded-lg bg-[#f97316] text-white font-medium text-xs hover:bg-[#ea6d0f] transition-colors"
+            >
+              Apply
+            </button>
+            <button
+              type="button"
+              onClick={() => setParsed3MF(null)}
+              className="px-3 py-1 rounded-lg border border-slate-200 text-slate-600 text-xs hover:bg-slate-50 transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+      {parseError && <p className="text-xs text-red-500">{parseError}</p>}
 
       <div className="grid grid-cols-2 gap-3">
         <FormField
@@ -267,6 +336,66 @@ function ProductForm({ initial, existingSkus, onSave, onClose }: ProductFormProp
         </button>
       </div>
     </form>
+  );
+}
+
+// ── Product edit modal with Details / Labels tabs ─────────────────────────────
+
+type ProductTab = 'details' | 'labels';
+
+function ProductEditModal({
+  product,
+  existingSkus,
+  onSave,
+  onClose,
+}: {
+  product: Product;
+  existingSkus: string[];
+  onSave: (d: FormData) => void;
+  onClose: () => void;
+}) {
+  const [tab, setTab] = useState<ProductTab>('details');
+
+  return (
+    <div>
+      <div className="flex gap-5 border-b border-slate-100 mb-4 -mt-1">
+        {(['details', 'labels'] as ProductTab[]).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={[
+              'text-sm font-medium pb-2.5 capitalize border-b-2 transition-colors',
+              tab === t
+                ? 'border-[#f97316] text-[#f97316]'
+                : 'border-transparent text-slate-500 hover:text-slate-700',
+            ].join(' ')}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+      {tab === 'details' && (
+        <ProductForm
+          initial={{
+            sku: product.sku,
+            name: product.name,
+            category: product.category,
+            filamentSpoolId: product.filamentSpoolId ?? '',
+            filamentUsedG: product.filamentUsedG,
+            printTimeHours: product.printTimeHours,
+            laborHours: product.laborHours,
+            laborRatePerHour: product.laborRatePerHour,
+            otherCosts: product.otherCosts,
+            sellingPrice: product.sellingPrice,
+            notes: product.notes ?? '',
+          }}
+          existingSkus={existingSkus}
+          onSave={onSave}
+          onClose={onClose}
+        />
+      )}
+      {tab === 'labels' && <ProductLabelPanel product={product} />}
+    </div>
   );
 }
 
@@ -575,31 +704,28 @@ export default function Products() {
       {/* Add/Edit modal */}
       {modal !== null && (
         <Modal
-          title={modal === 'add' ? 'Add Product' : 'Edit Product'}
+          title={
+            modal === 'add'
+              ? 'Add Product'
+              : (modal as { product: Product }).product.name
+          }
           onClose={() => setModal(null)}
         >
-          <ProductForm
-            initial={
-              modal === 'add'
-                ? emptyForm()
-                : {
-                    sku: (modal as { product: Product }).product.sku,
-                    name: (modal as { product: Product }).product.name,
-                    category: (modal as { product: Product }).product.category,
-                    filamentSpoolId: (modal as { product: Product }).product.filamentSpoolId ?? '',
-                    filamentUsedG: (modal as { product: Product }).product.filamentUsedG,
-                    printTimeHours: (modal as { product: Product }).product.printTimeHours,
-                    laborHours: (modal as { product: Product }).product.laborHours,
-                    laborRatePerHour: (modal as { product: Product }).product.laborRatePerHour,
-                    otherCosts: (modal as { product: Product }).product.otherCosts,
-                    sellingPrice: (modal as { product: Product }).product.sellingPrice,
-                    notes: (modal as { product: Product }).product.notes ?? '',
-                  }
-            }
-            existingSkus={existingSkus}
-            onSave={handleSave}
-            onClose={() => setModal(null)}
-          />
+          {modal === 'add' ? (
+            <ProductForm
+              initial={emptyForm()}
+              existingSkus={existingSkus}
+              onSave={handleSave}
+              onClose={() => setModal(null)}
+            />
+          ) : (
+            <ProductEditModal
+              product={(modal as { product: Product }).product}
+              existingSkus={existingSkus}
+              onSave={handleSave}
+              onClose={() => setModal(null)}
+            />
+          )}
         </Modal>
       )}
 

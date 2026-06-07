@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useProductStore } from '../stores/productStore';
 import { useFilamentStore } from '../stores/filamentStore';
 import { unitCost } from '../lib/metrics';
 import type { Product, FilamentSpool } from '../types';
+import { parse3MF, formatPrintTime } from '../lib/parse3mf';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -291,6 +292,26 @@ function CustomTab({
 
   const s = <K extends keyof CustomState>(k: K, v: number) => setC((prev) => ({ ...prev, [k]: v }));
 
+  const [parsing3MF, setParsing3MF] = useState(false);
+  const [importNote, setImportNote] = useState('');
+  const fileRef3MF = useRef<HTMLInputElement>(null);
+
+  async function handle3MFFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setParsing3MF(true);
+    setImportNote('');
+    const result = await parse3MF(file);
+    if (result) {
+      s('filamentUsedG', Math.round(result.totalGrams * 10) / 10);
+      setImportNote(`Applied: ${result.totalGrams.toFixed(1)}g · Print time: ${formatPrintTime(result.printTimeHours)}`);
+    } else {
+      setImportNote('Could not read 3MF data — enter values manually.');
+    }
+    setParsing3MF(false);
+    e.target.value = '';
+  }
+
   const filamentCost = c.filamentCostPerG * c.filamentUsedG;
   const laborCost = c.laborHours * c.laborRatePerHour;
   const totalCost = filamentCost + laborCost + c.otherCosts;
@@ -299,7 +320,23 @@ function CustomTab({
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <div className="space-y-3">
         <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4 space-y-3">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Filament</p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Filament</p>
+            <button
+              type="button"
+              onClick={() => fileRef3MF.current?.click()}
+              disabled={parsing3MF}
+              className="text-[10px] font-medium text-[#f97316] hover:underline disabled:opacity-50"
+            >
+              {parsing3MF ? 'Reading…' : '↑ Import 3MF'}
+            </button>
+          </div>
+          <input ref={fileRef3MF} type="file" accept=".3mf" className="hidden" onChange={handle3MFFile} />
+          {importNote && (
+            <p className={`text-[10px] rounded-md px-2 py-1.5 ${importNote.startsWith('Could') ? 'bg-red-50 text-red-600' : 'bg-orange-50 text-slate-600'}`}>
+              {importNote}
+            </p>
+          )}
           <Field label="Cost per gram ($)" value={c.filamentCostPerG} onChange={(v) => s('filamentCostPerG', v)} step={0.0001} />
           <Field label="Amount used (g)" value={c.filamentUsedG} onChange={(v) => s('filamentUsedG', v)} step={1} />
         </div>

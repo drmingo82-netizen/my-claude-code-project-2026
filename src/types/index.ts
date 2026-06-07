@@ -1,13 +1,120 @@
+export type LocationType = 'AMS' | 'Shelf' | 'Drawer' | 'Dryer' | 'Box' | 'Other';
+
+export interface StorageLocation {
+  id: string;
+  name: string;
+  type: LocationType;
+  notes?: string;
+  maxCapacity?: number;
+}
+
 export interface FilamentSpool {
   id: string;
   brand: string;
   material: string; // PLA, PETG, ABS, TPU, etc.
   color: string;
+  colorHex?: string; // e.g. "#ff6b6b" — used by palette tools
   weightTotalG: number;
   weightRemainingG: number;
   costPerSpool: number;
   purchasedAt: string; // ISO date
   notes?: string;
+  locationId?: string;
+}
+
+// ── Hardware registry ─────────────────────────────────────────────────────────
+
+export type PrinterStatus = 'active' | 'maintenance' | 'retired';
+
+export interface Printer3D {
+  id: string;
+  name: string;
+  brand: string;
+  model: string;
+  buildVolumeX?: number;
+  buildVolumeY?: number;
+  buildVolumeZ?: number;
+  maxNozzleTempC?: number;
+  maxBedTempC?: number;
+  filamentDiameter: '1.75' | '2.85';
+  compatibleMaterials: string[];
+  purchaseDate?: string;
+  purchasePrice?: number;
+  notes?: string;
+  status: PrinterStatus;
+}
+
+export type AmsType = 'AMS' | 'AMS Lite' | 'AMS 2 Pro' | 'AMS Hub';
+
+export interface AMSSystem {
+  id: string;
+  name: string;
+  type: AmsType;
+  slotCount: 4 | 8;
+  linkedPrinterId?: string; // UUID from Printer3D or bridge ID ('p1s', 'h2s')
+  notes?: string;
+}
+
+export type PlateType =
+  | 'Cool Plate'
+  | 'Engineering Plate'
+  | 'High Temp Plate'
+  | 'Textured PEI'
+  | 'Smooth PEI'
+  | 'Other';
+
+export interface BuildPlate {
+  id: string;
+  name: string;
+  type: PlateType;
+  compatibleMaterials: string[];
+  linkedPrinterId?: string;
+  conditionNotes?: string;
+}
+
+// ── Drying ────────────────────────────────────────────────────────────────────
+
+export interface DryingSession {
+  id: string;
+  spoolId: string;
+  spoolLabel: string;
+  startedAt: string;
+  durationMinutes: number;
+  tempC: number;
+  completedAt: string;
+}
+
+export interface ActiveDryingTimer {
+  spoolId: string;
+  spoolLabel: string;
+  startedAt: string;
+  durationMinutes: number;
+  tempC: number;
+  dryerId?: string;
+}
+
+export interface FilamentDryer {
+  id: string;
+  name: string;
+  brand?: string;
+  model?: string;
+  maxTempC: number;
+  capacitySpools?: number;
+  notes?: string;
+}
+
+export interface AmsSlotColor {
+  colorHex: string;
+  colorName: string;
+  brand?: string;
+  material?: string;
+}
+
+export interface AmsPreset {
+  id: string;
+  name: string;
+  slots: (AmsSlotColor | null)[]; // always length 4
+  createdAt: string;
 }
 
 export interface Product {

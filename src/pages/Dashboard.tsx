@@ -11,12 +11,18 @@ import {
 import { useFilamentStore } from '../stores/filamentStore';
 import { useProductStore } from '../stores/productStore';
 import { useSalesStore } from '../stores/salesStore';
+import { useLocationStore } from '../stores/locationStore';
 import { computeKPIs, monthlyRevenueChart, topProducts } from '../lib/metrics';
 import { demoSpools, demoProducts, demoSales } from '../lib/demoData';
 import PrinterWidget from '../components/PrinterWidget';
 import JobCompleteModal from '../components/JobCompleteModal';
 import { usePrinterStatus } from '../hooks/usePrinterStatus';
 import type { CompletedJob, PrinterEntry } from '../hooks/usePrinterStatus';
+import type { LocationType } from '../types';
+
+const TYPE_ICONS: Record<LocationType, string> = {
+  AMS: '🖨️', Shelf: '📚', Drawer: '🗄️', Dryer: '🌡️', Box: '📦', Other: '📍',
+};
 
 interface PendingJob {
   printer: PrinterEntry;
@@ -47,6 +53,60 @@ function KpiCard({ label, value, sub, accent }: KpiCardProps) {
         {value}
       </p>
       {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
+    </div>
+  );
+}
+
+function StorageSummaryWidget() {
+  const locations = useLocationStore((s) => s.locations);
+  const spools = useFilamentStore((s) => s.spools);
+
+  if (locations.length === 0) return null;
+
+  const unassigned = spools.filter((s) => !s.locationId).length;
+
+  return (
+    <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
+      <p className="text-sm font-semibold text-[#1e2a3a] mb-3">Storage Summary</p>
+      <div className="space-y-3">
+        {locations.map((loc) => {
+          const count = spools.filter((s) => s.locationId === loc.id).length;
+          const pct = loc.maxCapacity ? Math.min((count / loc.maxCapacity) * 100, 100) : null;
+          const barColor =
+            pct === null ? '' : pct >= 100 ? 'bg-red-400' : pct >= 80 ? 'bg-amber-400' : 'bg-emerald-400';
+          return (
+            <div key={loc.id}>
+              <div className="flex items-center justify-between text-xs mb-1">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-base leading-none">{TYPE_ICONS[loc.type]}</span>
+                  <span className="font-medium text-slate-700 truncate">{loc.name}</span>
+                  {pct !== null && pct >= 100 && (
+                    <span className="text-[10px] text-red-500 font-semibold shrink-0">Full</span>
+                  )}
+                </div>
+                <span className="text-slate-500 shrink-0 ml-2">
+                  {count}{loc.maxCapacity ? ` / ${loc.maxCapacity}` : ''}{' '}
+                  spool{count !== 1 ? 's' : ''}
+                </span>
+              </div>
+              {pct !== null && (
+                <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div
+                    className={`${barColor} h-full rounded-full transition-all`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {unassigned > 0 && (
+          <div className="flex items-center justify-between text-xs text-slate-400 pt-1.5 border-t border-slate-50">
+            <span>Unassigned</span>
+            <span>{unassigned} spool{unassigned !== 1 ? 's' : ''}</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -117,6 +177,29 @@ export default function Dashboard() {
         )}
       </div>
 
+      {/* Printer widgets — always visible */}
+      {(serverOnline ? printers : []).length > 0 ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
+          {printers.map((p) => (
+            <PrinterWidget key={p.id} printer={p} serverOnline={serverOnline} />
+          ))}
+        </div>
+      ) : (
+        <div className="mb-4">
+          <PrinterWidget
+            printer={{
+              id: 'offline', name: 'Printer Bridge',
+              connection: 'disconnected',
+              printer: { gcodeState: 'unknown', progress: 0, remainingMinutes: null,
+                currentFile: null, layerCurrent: null, layerTotal: null,
+                bedTempC: null, nozzleTempC: null, wifiSignal: null, speedLevel: null },
+              lastUpdated: null, lastCompletedJob: null,
+            }}
+            serverOnline={false}
+          />
+        </div>
+      )}
+
       {!hasData ? (
         <EmptyState onLoad={loadDemo} />
       ) : (
@@ -141,29 +224,6 @@ export default function Dashboard() {
               sub={`${products.length} active SKUs`}
             />
           </div>
-
-          {/* Printer widgets */}
-          {(serverOnline ? printers : []).length > 0 ? (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
-              {printers.map((p) => (
-                <PrinterWidget key={p.id} printer={p} serverOnline={serverOnline} />
-              ))}
-            </div>
-          ) : (
-            <div className="mb-4">
-              <PrinterWidget
-                printer={{
-                  id: 'offline', name: 'Printer Bridge',
-                  connection: 'disconnected',
-                  printer: { gcodeState: 'unknown', progress: 0, remainingMinutes: null,
-                    currentFile: null, layerCurrent: null, layerTotal: null,
-                    bedTempC: null, nozzleTempC: null, wifiSignal: null, speedLevel: null },
-                  lastUpdated: null, lastCompletedJob: null,
-                }}
-                serverOnline={false}
-              />
-            </div>
-          )}
 
           {/* Chart + Top Products */}
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-4">
@@ -233,6 +293,9 @@ export default function Dashboard() {
               )}
             </div>
           </div>
+
+          {/* Storage Summary */}
+          <StorageSummaryWidget />
 
           {/* Low filament alerts */}
           {kpis.lowSpools.length > 0 && (

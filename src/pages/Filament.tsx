@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useFilamentStore } from '../stores/filamentStore';
 import type { FilamentSpool } from '../types';
 import { usePrinterStatus } from '../hooks/usePrinterStatus';
@@ -7,6 +8,12 @@ import { exportToCsv, parseCsv } from '../lib/csv';
 import Modal from '../components/ui/Modal';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import FormField from '../components/ui/FormField';
+import SpoolLabelPanel from '../components/labels/SpoolLabelPanel';
+import DryingTab from '../components/filament/DryingTab';
+import FilamentImportPanel, { type ImportableSpool } from '../components/modals/FilamentImportPanel';
+import { useLocationStore } from '../stores/locationStore';
+import { useAmsStatus, flattenAmsTrays } from '../hooks/useAmsStatus';
+import { colorMatches, isDark, generateColorFromName } from '../utils/colorUtils';
 
 const MATERIALS = ['PLA', 'PETG', 'ABS', 'ASA', 'TPU', 'Nylon', 'Resin', 'Other'];
 
@@ -21,11 +28,13 @@ const emptyForm = (): FormData => ({
   brand: '',
   material: 'PLA',
   color: '',
+  colorHex: undefined,
   weightTotalG: 1000,
   weightRemainingG: 1000,
   costPerSpool: 0,
   purchasedAt: new Date().toISOString().slice(0, 10),
   notes: '',
+  locationId: undefined,
 });
 
 function validate(f: FormData): Partial<Record<keyof FormData, string>> {
@@ -37,6 +46,34 @@ function validate(f: FormData): Partial<Record<keyof FormData, string>> {
   if (f.weightRemainingG > f.weightTotalG) e.weightRemainingG = 'Cannot exceed total weight';
   if (f.costPerSpool < 0) e.costPerSpool = 'Cannot be negative';
   return e;
+}
+
+function SpoolLocationSelect({
+  value,
+  onChange,
+}: {
+  value: string | undefined;
+  onChange: (id: string | undefined) => void;
+}) {
+  const locations = useLocationStore((s) => s.locations);
+  if (locations.length === 0) return null;
+  return (
+    <div>
+      <label className="block text-xs font-medium text-slate-600 mb-1">Storage Location</label>
+      <select
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value || undefined)}
+        className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#f97316] focus:border-transparent"
+      >
+        <option value="">— None —</option>
+        {locations.map((l) => (
+          <option key={l.id} value={l.id}>
+            {l.name} ({l.type})
+          </option>
+        ))}
+      </select>
+    </div>
+  );
 }
 
 interface SpoolFormProps {
@@ -78,12 +115,43 @@ function SpoolForm({ initial, onSave, onClose }: SpoolFormProps) {
         />
       </div>
       <FormField
-        label="Color"
+        label="Color Name"
         value={form.color}
         onChange={(e) => set('color', (e.target as HTMLInputElement).value)}
         placeholder="e.g. Matte Black"
         error={errors.color}
       />
+      {/* Hex color picker — feeds My Colors palette tools */}
+      <div className="flex items-center gap-2 -mt-2">
+        <input
+          type="color"
+          value={form.colorHex ?? '#808080'}
+          onChange={(e) => set('colorHex', e.target.value)}
+          className="h-7 w-7 rounded border border-slate-200 cursor-pointer p-0.5 shrink-0 bg-white"
+          title="Pick hex color for palette tools"
+        />
+        <input
+          type="text"
+          value={form.colorHex ?? ''}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === '' || /^#[0-9a-fA-F]{0,6}$/.test(v))
+              set('colorHex', v || undefined);
+          }}
+          placeholder="Color hex — optional, for palette tools"
+          maxLength={7}
+          className="flex-1 text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono focus:outline-none focus:ring-2 focus:ring-[#f97316] focus:border-transparent"
+        />
+        {form.colorHex && (
+          <button
+            type="button"
+            onClick={() => set('colorHex', undefined)}
+            className="text-xs text-slate-400 hover:text-red-500 transition-colors shrink-0"
+          >
+            ×
+          </button>
+        )}
+      </div>
       <div className="grid grid-cols-2 gap-3">
         <FormField
           label="Total Weight (g)"
@@ -127,6 +195,11 @@ function SpoolForm({ initial, onSave, onClose }: SpoolFormProps) {
         placeholder="Any notes about this spool…"
       />
 
+      <SpoolLocationSelect
+        value={form.locationId}
+        onChange={(id) => set('locationId', id)}
+      />
+
       {/* Live cost preview */}
       {form.weightTotalG > 0 && form.costPerSpool > 0 && (
         <div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-600 flex justify-between">
@@ -166,74 +239,196 @@ function RemainBar({ pct }: { pct: number }) {
   );
 }
 
-const AMS_SLOTS = [0, 1, 2, 3];
+// ── AMS Mapping Section — live MQTT data + manual assignment ─────────────────
 
-function PrinterAmsSlots({ printerId, printerName }: { printerId: string; printerName: string }) {
-  const spools          = useFilamentStore((s) => s.spools);
-  const amsMappings     = useFilamentStore((s) => s.amsMappings);
-  const setAmsMapping   = useFilamentStore((s) => s.setAmsMapping);
+function relTime(iso: string): string {
+  const min = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min}m ago`;
+  return `${Math.floor(min / 60)}h ago`;
+}
+
+function AmsSlotRow({
+  slot,
+  printerId,
+  tray,
+}: {
+  slot: number;
+  printerId: string;
+  tray: import('../hooks/useAmsStatus').AmsTray | null;
+}) {
+  const spools = useFilamentStore((s) => s.spools);
+  const amsMappings = useFilamentStore((s) => s.amsMappings);
+  const setAmsMapping = useFilamentStore((s) => s.setAmsMapping);
   const clearAmsMapping = useFilamentStore((s) => s.clearAmsMapping);
 
-  function getSpoolId(slot: number): string {
-    return amsMappings.find((m) => m.printerId === printerId && m.amsSlot === slot)?.spoolId ?? '';
-  }
+  const linkedSpoolId = amsMappings.find(
+    (m) => m.printerId === printerId && m.amsSlot === slot,
+  )?.spoolId ?? '';
+  const linkedSpool = spools.find((s) => s.id === linkedSpoolId);
+
+  // Auto-match: find a spool whose colorHex is within 30° hue of the live tray color
+  const suggestion = !linkedSpoolId && tray?.colorHex
+    ? spools.find((s) => {
+        const spoolHex = s.colorHex || generateColorFromName(s.color);
+        return colorMatches(spoolHex, tray.colorHex!, 30);
+      })
+    : null;
+
+  const hex = tray?.colorHex ?? null;
+  const dark = hex ? isDark(hex) : false;
+  const hasData = tray !== null;
+
+  return (
+    <div className="flex items-start gap-3 p-3 bg-slate-50/70 rounded-xl border border-slate-100">
+      {/* Color swatch */}
+      <div
+        className="w-10 h-10 rounded-full border-2 border-white shadow-sm flex items-center justify-center shrink-0 mt-0.5"
+        style={{ backgroundColor: hex ?? '#e2e8f0' }}
+        title={hex ?? 'No data'}
+      >
+        <span className={`text-[11px] font-bold leading-none ${hex ? (dark ? 'text-white/60' : 'text-black/40') : 'text-slate-400'}`}>
+          {slot + 1}
+        </span>
+      </div>
+
+      {/* Info + assignment */}
+      <div className="flex-1 min-w-0">
+        {/* Slot label + badges */}
+        <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+          <span className="text-xs font-semibold text-slate-700">AMS {slot + 1}</span>
+          {tray?.filamentType && (
+            <span className="text-[10px] bg-[#1e2a3a]/8 text-[#1e2a3a] px-1.5 py-0.5 rounded-full font-medium">
+              {tray.filamentType}
+            </span>
+          )}
+          {hex && (
+            <span className="text-[10px] font-mono text-slate-400">{hex}</span>
+          )}
+          {!hasData && (
+            <span className="text-[10px] text-slate-300 italic">No MQTT data</span>
+          )}
+        </div>
+
+        {/* Remaining bar */}
+        {tray?.remainPct !== null && tray?.remainPct !== undefined && (
+          <div className="mb-2">
+            <div className="flex justify-between text-[10px] text-slate-400 mb-0.5">
+              <span>Remaining</span>
+              <span className={tray.remainPct < 20 ? 'text-red-500 font-semibold' : ''}>{tray.remainPct}%</span>
+            </div>
+            <div className="h-1 bg-slate-200 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  tray.remainPct < 20 ? 'bg-red-400' : tray.remainPct < 50 ? 'bg-amber-400' : 'bg-emerald-400'
+                }`}
+                style={{ width: `${tray.remainPct}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Assignment state */}
+        {linkedSpool ? (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-emerald-700 font-medium">
+              ✓ {linkedSpool.brand} {linkedSpool.material} {linkedSpool.color}
+            </span>
+            <button
+              onClick={() => clearAmsMapping(printerId, slot)}
+              className="text-[10px] text-slate-400 hover:text-red-500 transition-colors"
+            >
+              Unlink
+            </button>
+          </div>
+        ) : suggestion ? (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] text-amber-700">
+              💡 {suggestion.brand} {suggestion.material} {suggestion.color}
+            </span>
+            <button
+              onClick={() => setAmsMapping(printerId, slot, suggestion.id)}
+              className="text-[10px] font-semibold text-[#f97316] hover:underline"
+            >
+              Link?
+            </button>
+          </div>
+        ) : (
+          <select
+            value=""
+            onChange={(e) => e.target.value && setAmsMapping(printerId, slot, e.target.value)}
+            className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-500 bg-white focus:outline-none focus:ring-1 focus:ring-[#f97316]"
+          >
+            <option value="">
+              {hasData ? '❓ Unknown — assign from inventory' : '— Unassigned —'}
+            </option>
+            {spools.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.brand} {s.material} {s.color} ({s.weightRemainingG}g)
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PrinterAmsSlots({ printerId, printerName }: { printerId: string; printerName: string }) {
+  const { printers } = useAmsStatus();
+  const amsTrays = flattenAmsTrays(printers[printerId]);
 
   return (
     <div>
       <p className="text-xs font-semibold text-slate-600 mb-2">{printerName}</p>
       <div className="space-y-2">
-        {AMS_SLOTS.map((slot) => {
-          const spoolId = getSpoolId(slot);
-          return (
-            <div key={slot} className="flex items-center gap-3">
-              <span className="font-mono text-xs bg-[#1e2a3a]/10 text-[#1e2a3a] px-2 py-1 rounded shrink-0 w-14 text-center">
-                AMS {slot + 1}
-              </span>
-              <select
-                value={spoolId}
-                onChange={(e) =>
-                  e.target.value
-                    ? setAmsMapping(printerId, slot, e.target.value)
-                    : clearAmsMapping(printerId, slot)
-                }
-                className="flex-1 text-[16px] sm:text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#f97316]"
-              >
-                <option value="">— Unassigned —</option>
-                {spools.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.brand} {s.material} {s.color} ({s.weightRemainingG}g)
-                  </option>
-                ))}
-              </select>
-              {spoolId && (
-                <button
-                  onClick={() => clearAmsMapping(printerId, slot)}
-                  className="text-xs text-slate-400 hover:text-red-500 transition-colors shrink-0 py-1.5 px-1"
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-          );
-        })}
+        {[0, 1, 2, 3].map((slot) => (
+          <AmsSlotRow
+            key={slot}
+            slot={slot}
+            printerId={printerId}
+            tray={amsTrays[slot] ?? null}
+          />
+        ))}
       </div>
     </div>
   );
 }
 
 function AmsMappingSection() {
-  const { printers, serverOnline } = usePrinterStatus();
+  const { printers: statusPrinters, serverOnline } = usePrinterStatus();
+  const { lastRefresh, serverOnline: amsOnline, refresh } = useAmsStatus();
   const spools = useFilamentStore((s) => s.spools);
 
-  const visiblePrinters = serverOnline && printers.length > 0
-    ? printers
-    : [{ id: 'p1s', name: 'Bambu Lab P1S' }, { id: 'h2s', name: 'Bambu Lab H2S' }];
+  const visiblePrinters =
+    serverOnline && statusPrinters.length > 0
+      ? statusPrinters
+      : [
+          { id: 'p1s', name: 'Bambu Lab P1S' },
+          { id: 'h2s', name: 'Bambu Lab H2S' },
+        ];
 
   return (
     <div className="mt-6 bg-white rounded-xl border border-slate-100 shadow-sm p-4">
-      <p className="text-sm font-semibold text-[#1e2a3a] mb-1">AMS Slot Mapping</p>
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <p className="text-sm font-semibold text-[#1e2a3a]">AMS Slot Mapping</p>
+        <div className="flex items-center gap-2 shrink-0">
+          {amsOnline && lastRefresh && (
+            <span className="text-[10px] text-slate-400">
+              Updated {relTime(lastRefresh)}
+            </span>
+          )}
+          <button
+            onClick={refresh}
+            className="text-[10px] text-[#f97316] hover:underline font-medium"
+            title="Refresh AMS data now"
+          >
+            ↺ Refresh
+          </button>
+        </div>
+      </div>
       <p className="text-xs text-slate-400 mb-4">
-        Link each AMS tray to a spool so filament is auto-deducted after a print.
+        Link each AMS tray to a spool. Live color and remaining % are pulled from the printer.
       </p>
       <div className="space-y-6">
         {visiblePrinters.map((p) => (
@@ -247,6 +442,63 @@ function AmsMappingSection() {
   );
 }
 
+// ── Spool edit modal with Details / Labels tabs ───────────────────────────────
+
+type SpoolTab = 'details' | 'labels' | 'drying';
+
+function SpoolEditModal({
+  spool,
+  onSave,
+  onClose,
+}: {
+  spool: FilamentSpool;
+  onSave: (d: FormData) => void;
+  onClose: () => void;
+}) {
+  const [tab, setTab] = useState<SpoolTab>('details');
+
+  return (
+    <div>
+      <div className="flex gap-5 border-b border-slate-100 mb-4 -mt-1">
+        {(['details', 'labels', 'drying'] as SpoolTab[]).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={[
+              'text-sm font-medium pb-2.5 capitalize border-b-2 transition-colors',
+              tab === t
+                ? 'border-[#f97316] text-[#f97316]'
+                : 'border-transparent text-slate-500 hover:text-slate-700',
+            ].join(' ')}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+      {tab === 'details' && (
+        <SpoolForm
+          initial={{
+            brand: spool.brand,
+            material: spool.material,
+            color: spool.color,
+            colorHex: spool.colorHex,
+            weightTotalG: spool.weightTotalG,
+            weightRemainingG: spool.weightRemainingG,
+            costPerSpool: spool.costPerSpool,
+            purchasedAt: spool.purchasedAt,
+            notes: spool.notes ?? '',
+            locationId: spool.locationId,
+          }}
+          onSave={onSave}
+          onClose={onClose}
+        />
+      )}
+      {tab === 'labels' && <SpoolLabelPanel spool={spool} />}
+      {tab === 'drying' && <DryingTab spool={spool} />}
+    </div>
+  );
+}
+
 export default function Filament() {
   const spools = useFilamentStore((s) => s.spools);
   const { addSpool, updateSpool, deleteSpool, importSpools } = useFilamentStore();
@@ -256,6 +508,48 @@ export default function Filament() {
   const [importMode, setImportMode] = useState<'replace' | 'merge'>('replace');
   const [importError, setImportError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // CSV import modal
+  const [showImportModal, setShowImportModal] = useState(false);
+  // IDs of newly-imported spools that still need a price (costPerSpool === 0)
+  const [incompleteImportedIds, setIncompleteImportedIds] = useState<Set<string>>(new Set());
+  const [spoolFilter, setSpoolFilter] = useState<'all' | 'incomplete'>('all');
+  const [toast, setToast] = useState('');
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Dismiss banner automatically when all incomplete-imported spools get a price
+  useEffect(() => {
+    if (incompleteImportedIds.size === 0) return;
+    const stillMissing = spools.filter(
+      (s) => incompleteImportedIds.has(s.id) && s.costPerSpool === 0,
+    );
+    if (stillMissing.length === 0) {
+      setIncompleteImportedIds(new Set());
+      setSpoolFilter('all');
+    }
+  }, [spools, incompleteImportedIds]);
+
+  function showToast(msg: string) {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast(msg);
+    toastTimerRef.current = setTimeout(() => setToast(''), 4000);
+  }
+
+  function handleCsvImport(rows: ImportableSpool[]) {
+    const prevIds = new Set(useFilamentStore.getState().spools.map((s) => s.id));
+    for (const row of rows) {
+      addSpool(row);
+    }
+    // Find the IDs that were just created and flag any missing price
+    const newIncomplete = useFilamentStore
+      .getState()
+      .spools.filter((s) => !prevIds.has(s.id) && s.costPerSpool === 0)
+      .map((s) => s.id);
+    setIncompleteImportedIds(new Set(newIncomplete));
+    if (newIncomplete.length > 0) setSpoolFilter('incomplete');
+    setShowImportModal(false);
+    showToast(`${rows.length} spool${rows.length !== 1 ? 's' : ''} imported successfully`);
+  }
 
   function handleSave(data: FormData) {
     if (modal === 'add') {
@@ -315,6 +609,33 @@ export default function Filament() {
     e.target.value = '';
   }
 
+  const locations = useLocationStore((s) => s.locations);
+  const [viewMode, setViewMode] = useState<'list' | 'location'>('list');
+
+  const visibleSpools =
+    spoolFilter === 'incomplete' ? spools.filter((s) => s.costPerSpool === 0) : spools;
+
+  // Build location groups for grouped view
+  const locationGroups = (() => {
+    if (viewMode !== 'location') return null;
+    const byLoc = new Map<string | null, typeof spools>();
+    for (const s of visibleSpools) {
+      const key = s.locationId ?? null;
+      if (!byLoc.has(key)) byLoc.set(key, []);
+      byLoc.get(key)!.push(s);
+    }
+    const groups: { locId: string | null; name: string; type?: string; spools: typeof spools }[] = [];
+    for (const loc of locations) {
+      if (byLoc.has(loc.id)) {
+        groups.push({ locId: loc.id, name: loc.name, type: loc.type, spools: byLoc.get(loc.id)! });
+      }
+    }
+    if (byLoc.has(null)) {
+      groups.push({ locId: null, name: 'Unassigned', spools: byLoc.get(null)! });
+    }
+    return groups;
+  })();
+
   // Summary stats
   const totalValue = spools.reduce((sum, s) => sum + filamentCostPerG(s) * s.weightRemainingG, 0);
   const totalRemainingKg = spools.reduce((sum, s) => sum + s.weightRemainingG, 0) / 1000;
@@ -330,12 +651,26 @@ export default function Filament() {
           <h1 className="hidden lg:block text-xl font-bold text-[#1e2a3a]">Filament Inventory</h1>
           <p className="text-xs text-slate-400 lg:mt-0.5">{spools.length} spool{spools.length !== 1 ? 's' : ''} tracked</p>
         </div>
-        <button
-          onClick={() => setModal('add')}
-          className="bg-[#f97316] text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-[#ea6d0f] transition-colors"
-        >
-          + Add Spool
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/bulk-labels"
+            className="text-xs px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            Bulk Labels
+          </Link>
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="text-xs px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            Import CSV
+          </button>
+          <button
+            onClick={() => setModal('add')}
+            className="bg-[#f97316] text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-[#ea6d0f] transition-colors"
+          >
+            + Add Spool
+          </button>
+        </div>
       </div>
 
       {/* Summary cards */}
@@ -353,6 +688,54 @@ export default function Filament() {
             <p className={`text-xs mb-0.5 ${lowCount > 0 ? 'text-red-500' : 'text-slate-400'}`}>Low Stock</p>
             <p className={`text-lg font-bold ${lowCount > 0 ? 'text-red-600' : 'text-[#1e2a3a]'}`}>{lowCount}</p>
           </div>
+        </div>
+      )}
+
+      {/* Incomplete-import banner */}
+      {incompleteImportedIds.size > 0 && (() => {
+        const count = spools.filter(
+          (s) => incompleteImportedIds.has(s.id) && s.costPerSpool === 0,
+        ).length;
+        if (count === 0) return null;
+        return (
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3">
+            <p className="text-xs font-medium text-orange-700">
+              {count} spool{count !== 1 ? 's' : ''} need a purchase price
+            </p>
+            <div className="flex items-center gap-3 shrink-0">
+              <button
+                onClick={() => setSpoolFilter('incomplete')}
+                className="text-xs font-semibold text-[#f97316] hover:underline"
+              >
+                Complete now →
+              </button>
+              <button
+                onClick={() => {
+                  setIncompleteImportedIds(new Set());
+                  setSpoolFilter('all');
+                }}
+                className="text-xs text-orange-400 hover:text-orange-600 transition-colors"
+                aria-label="Dismiss"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Incomplete filter toggle (shown when filtering) */}
+      {spoolFilter === 'incomplete' && (
+        <div className="mb-3 flex items-center gap-2">
+          <span className="text-xs font-medium text-[#f97316] bg-orange-50 border border-orange-200 px-2.5 py-1 rounded-full">
+            Showing incomplete only
+          </span>
+          <button
+            onClick={() => setSpoolFilter('all')}
+            className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
+          >
+            Show all →
+          </button>
         </div>
       )}
 
@@ -385,6 +768,26 @@ export default function Filament() {
         {importError && <p className="text-xs text-red-500">{importError}</p>}
       </div>
 
+      {/* View mode toggle */}
+      {spools.length > 0 && locations.length > 0 && (
+        <div className="flex items-center gap-1 mb-3">
+          {(['list', 'location'] as const).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => setViewMode(mode)}
+              className={[
+                'text-xs font-medium px-3 py-1.5 rounded-lg transition-colors',
+                viewMode === mode
+                  ? 'bg-[#1e2a3a] text-white'
+                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200',
+              ].join(' ')}
+            >
+              {mode === 'list' ? 'List' : '📍 By Location'}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Table */}
       {spools.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center bg-white rounded-xl border border-slate-100">
@@ -397,6 +800,74 @@ export default function Filament() {
           >
             + Add Spool
           </button>
+        </div>
+      ) : visibleSpools.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 text-center bg-white rounded-xl border border-slate-100">
+          <p className="text-sm text-slate-500 mb-2">No spools match the current filter.</p>
+          <button
+            onClick={() => setSpoolFilter('all')}
+            className="text-xs text-[#f97316] hover:underline font-medium"
+          >
+            Show all spools
+          </button>
+        </div>
+      ) : viewMode === 'location' && locationGroups ? (
+        <div className="space-y-4">
+          {locationGroups.map((group) => (
+            <div
+              key={group.locId ?? 'unassigned'}
+              className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden"
+            >
+              <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-[#1e2a3a]">{group.name}</span>
+                  {group.type && (
+                    <span className="text-[10px] bg-[#1e2a3a]/8 text-[#1e2a3a] px-1.5 py-0.5 rounded-full">
+                      {group.type}
+                    </span>
+                  )}
+                </div>
+                <span className="text-xs text-slate-400">
+                  {group.spools.length} spool{group.spools.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[720px]">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50/40">
+                      {['Brand', 'Material', 'Color', 'Remaining', 'Weight', 'Cost', 'Cost/g', 'Purchased', ''].map((h) => (
+                        <th key={h} className="text-left text-xs font-semibold text-slate-500 px-4 py-2.5 whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {group.spools.map((spool) => {
+                      const gpct = spool.weightTotalG > 0 ? (spool.weightRemainingG / spool.weightTotalG) * 100 : 0;
+                      const gcpg = filamentCostPerG(spool);
+                      return (
+                        <tr key={spool.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
+                          <td className="px-4 py-3 font-medium text-slate-800 whitespace-nowrap">{spool.brand}</td>
+                          <td className="px-4 py-3"><span className="inline-block bg-[#1e2a3a]/10 text-[#1e2a3a] text-xs font-medium px-2 py-0.5 rounded-full">{spool.material}</span></td>
+                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{spool.color}</td>
+                          <td className="px-4 py-3"><div className="space-y-1"><RemainBar pct={gpct} /><p className="text-[10px] text-slate-400">{spool.weightRemainingG}g / {spool.weightTotalG}g</p></div></td>
+                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{spool.weightTotalG}g</td>
+                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{fmt2(spool.costPerSpool)}</td>
+                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{fmt4(gcpg)}</td>
+                          <td className="px-4 py-3 text-slate-400 whitespace-nowrap text-xs">{spool.purchasedAt}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => setModal({ spool })} className="text-xs text-[#f97316] hover:underline">Edit</button>
+                              <button onClick={() => setDeleteId(spool.id)} className="text-xs text-slate-400 hover:text-red-500 transition-colors">Delete</button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
@@ -415,7 +886,7 @@ export default function Filament() {
                 </tr>
               </thead>
               <tbody>
-                {spools.map((spool) => {
+                {visibleSpools.map((spool) => {
                   const pct =
                     spool.weightTotalG > 0
                       ? (spool.weightRemainingG / spool.weightTotalG) * 100
@@ -474,27 +945,26 @@ export default function Filament() {
       {/* Add/Edit modal */}
       {modal !== null && (
         <Modal
-          title={modal === 'add' ? 'Add Filament Spool' : 'Edit Spool'}
+          title={
+            modal === 'add'
+              ? 'Add Filament Spool'
+              : `${(modal as { spool: FilamentSpool }).spool.brand} ${(modal as { spool: FilamentSpool }).spool.material} — ${(modal as { spool: FilamentSpool }).spool.color}`
+          }
           onClose={() => setModal(null)}
         >
-          <SpoolForm
-            initial={
-              modal === 'add'
-                ? emptyForm()
-                : {
-                    brand: (modal as { spool: FilamentSpool }).spool.brand,
-                    material: (modal as { spool: FilamentSpool }).spool.material,
-                    color: (modal as { spool: FilamentSpool }).spool.color,
-                    weightTotalG: (modal as { spool: FilamentSpool }).spool.weightTotalG,
-                    weightRemainingG: (modal as { spool: FilamentSpool }).spool.weightRemainingG,
-                    costPerSpool: (modal as { spool: FilamentSpool }).spool.costPerSpool,
-                    purchasedAt: (modal as { spool: FilamentSpool }).spool.purchasedAt,
-                    notes: (modal as { spool: FilamentSpool }).spool.notes ?? '',
-                  }
-            }
-            onSave={handleSave}
-            onClose={() => setModal(null)}
-          />
+          {modal === 'add' ? (
+            <SpoolForm
+              initial={emptyForm()}
+              onSave={handleSave}
+              onClose={() => setModal(null)}
+            />
+          ) : (
+            <SpoolEditModal
+              spool={(modal as { spool: FilamentSpool }).spool}
+              onSave={handleSave}
+              onClose={() => setModal(null)}
+            />
+          )}
         </Modal>
       )}
 
@@ -505,6 +975,24 @@ export default function Filament() {
           onConfirm={() => { deleteSpool(deleteId); setDeleteId(null); }}
           onCancel={() => setDeleteId(null)}
         />
+      )}
+
+      {/* CSV Import modal */}
+      {showImportModal && (
+        <Modal title="Import Filament CSV" onClose={() => setShowImportModal(false)}>
+          <FilamentImportPanel
+            existingSpools={spools}
+            onImport={handleCsvImport}
+            onClose={() => setShowImportModal(false)}
+          />
+        </Modal>
+      )}
+
+      {/* Success toast */}
+      {toast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] bg-[#1e2a3a] text-white text-sm font-medium px-5 py-3 rounded-xl shadow-xl pointer-events-none lg:bottom-6">
+          {toast}
+        </div>
       )}
     </div>
   );
