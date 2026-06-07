@@ -64,6 +64,16 @@ export const useFilamentStore = create<FilamentStore>()(
       name: 'tactile-filament',
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({ spools: state.spools, amsMappings: state.amsMappings }),
+      // Ensure amsMappings always hydrates as an array even when loading data
+      // persisted before the field was added to the store.
+      merge: (persisted, current) => {
+        const ps = (persisted ?? {}) as { spools?: FilamentSpool[]; amsMappings?: AmsMapping[] };
+        return {
+          ...current,
+          spools: ps.spools ?? current.spools,
+          amsMappings: Array.isArray(ps.amsMappings) ? ps.amsMappings : [],
+        };
+      },
     }
   )
 );

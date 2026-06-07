@@ -9,12 +9,14 @@ import Modal from '../components/ui/Modal';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import FormField from '../components/ui/FormField';
 import SpoolLabelPanel from '../components/labels/SpoolLabelPanel';
+import QRScannerModal from '../components/scanner/QRScannerModal';
+import { exportAllData, importAllData, readBackupFile } from '../lib/dataBackup';
 import DryingTab from '../components/filament/DryingTab';
 import FilamentImportPanel, { type ImportableSpool } from '../components/modals/FilamentImportPanel';
 import BambuInvoiceImportPanel from '../components/modals/BambuInvoiceImportPanel';
 import { useLocationStore } from '../stores/locationStore';
 import { useAmsStatus, flattenAmsTrays } from '../hooks/useAmsStatus';
-import { colorMatches, isDark, generateColorFromName } from '../utils/colorUtils';
+import { hueDiff, isDark, generateColorFromName } from '../utils/colorUtils';
 
 const MATERIAL_CATEGORIES: { group: string; items: string[] }[] = [
   { group: 'PLA', items: [
@@ -30,7 +32,7 @@ const MATERIAL_CATEGORIES: { group: string; items: string[] }[] = [
   { group: 'Support & Specialty', items: ['PVA', 'HIPS', 'BVOH', 'Resin'] },
   { group: 'Other', items: ['Other'] },
 ];
-const MATERIALS = MATERIAL_CATEGORIES.flatMap(c => c.items);
+
 
 const fmt2 = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
@@ -289,12 +291,20 @@ function AmsSlotRow({
   )?.spoolId ?? '';
   const linkedSpool = spools.find((s) => s.id === linkedSpoolId);
 
-  // Auto-match: find a spool whose colorHex is within 30° hue of the live tray color
+  // Auto-match: find the spool with the CLOSEST hue to the live tray color (within 30°).
+  // Using find() (first match) caused all slots to suggest the same spool; reduce() to
+  // minimum distance ensures each slot independently picks its best candidate.
   const suggestion = !linkedSpoolId && tray?.colorHex
-    ? spools.find((s) => {
-        const spoolHex = s.colorHex || generateColorFromName(s.color);
-        return colorMatches(spoolHex, tray.colorHex!, 30);
-      })
+    ? (() => {
+        let best: typeof spools[0] | null = null;
+        let bestDist = Infinity;
+        for (const s of spools) {
+          const spoolHex = s.colorHex || generateColorFromName(s.color);
+          const dist = hueDiff(spoolHex, tray.colorHex!);
+          if (dist < 30 && dist < bestDist) { best = s; bestDist = dist; }
+        }
+        return best;
+      })()
     : null;
 
   const hex = tray?.colorHex ?? null;
@@ -332,21 +342,28 @@ function AmsSlotRow({
           )}
         </div>
 
-        {/* Remaining bar */}
+        {/* Remaining bar — remainPct is null for unknown slots, never negative */}
         {tray?.remainPct !== null && tray?.remainPct !== undefined && (
           <div className="mb-2">
-            <div className="flex justify-between text-[10px] text-slate-400 mb-0.5">
-              <span>Remaining</span>
-              <span className={tray.remainPct < 20 ? 'text-red-500 font-semibold' : ''}>{tray.remainPct}%</span>
-            </div>
-            <div className="h-1 bg-slate-200 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${
-                  tray.remainPct < 20 ? 'bg-red-400' : tray.remainPct < 50 ? 'bg-amber-400' : 'bg-emerald-400'
-                }`}
-                style={{ width: `${tray.remainPct}%` }}
-              />
-            </div>
+            {(() => {
+              const pct = Math.max(0, Math.min(100, tray.remainPct!));
+              return (
+                <>
+                  <div className="flex justify-between text-[10px] text-slate-400 mb-0.5">
+                    <span>Remaining</span>
+                    <span className={pct < 20 ? 'text-red-500 font-semibold' : ''}>{pct}%</span>
+                  </div>
+                  <div className="h-1 bg-slate-200 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${
+                        pct < 20 ? 'bg-red-400' : pct < 50 ? 'bg-amber-400' : 'bg-emerald-400'
+                      }`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </>
+              );
+            })()}
           </div>
         )}
 
@@ -525,6 +542,11 @@ export default function Filament() {
   const spools = useFilamentStore((s) => s.spools);
   const { addSpool, updateSpool, deleteSpool, importSpools } = useFilamentStore();
 
+  const [showScanner, setShowScanner] = useState(false);
+  const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
+  const [pendingBackup, setPendingBackup] = useState<import('../lib/dataBackup').BackupFile | null>(null);
+  const [backupError, setBackupError] = useState('');
+  const backupFileRef = useRef<HTMLInputElement>(null);
   const [modal, setModal] = useState<'add' | { spool: FilamentSpool } | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [importMode, setImportMode] = useState<'replace' | 'merge'>('replace');
@@ -690,6 +712,13 @@ export default function Filament() {
           <p className="text-xs text-slate-400 lg:mt-0.5">{spools.length} spool{spools.length !== 1 ? 's' : ''} tracked</p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowScanner(true)}
+            aria-label="Scan QR code"
+            className="flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors text-lg"
+          >
+            📷
+          </button>
           <Link
             to="/bulk-labels"
             className="text-xs px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
@@ -1025,6 +1054,51 @@ export default function Filament() {
       {/* AMS slot mapping */}
       <AmsMappingSection />
 
+      {/* Data & Backup */}
+      <div className="mt-6 bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+        <p className="text-sm font-semibold text-[#1e2a3a] mb-0.5">Data &amp; Backup</p>
+        <p className="text-xs text-slate-400 mb-4">
+          Export all app data to a JSON file, or restore from a previous backup.
+          Use this to migrate from localhost to production.
+        </p>
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={exportAllData}
+            className="flex items-center gap-2 text-sm px-4 py-2 rounded-lg bg-[#1e2a3a] text-white hover:bg-[#263548] transition-colors"
+          >
+            ↓ Export All Data
+          </button>
+          <button
+            onClick={() => { setBackupError(''); backupFileRef.current?.click(); }}
+            className="flex items-center gap-2 text-sm px-4 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            ↑ Import / Restore Data
+          </button>
+          <input
+            ref={backupFileRef}
+            type="file"
+            accept=".json"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (!file) return;
+              setBackupError('');
+              try {
+                const backup = await readBackupFile(file);
+                setPendingBackup(backup);
+                setShowRestoreConfirm(true);
+              } catch (err) {
+                setBackupError(err instanceof Error ? err.message : 'Unknown error reading file.');
+              }
+            }}
+          />
+        </div>
+        {backupError && (
+          <p className="mt-3 text-xs text-red-500">{backupError}</p>
+        )}
+      </div>
+
       {/* Add/Edit modal */}
       {modal !== null && (
         <Modal
@@ -1060,6 +1134,25 @@ export default function Filament() {
         />
       )}
 
+      {/* Restore confirm */}
+      {showRestoreConfirm && pendingBackup && (
+        <ConfirmDialog
+          message={`This will replace ALL current app data with the backup from ${new Date(pendingBackup.exportedAt).toLocaleString()}. This cannot be undone. Continue?`}
+          confirmLabel="Yes, Restore"
+          confirmClassName="text-sm px-4 py-2 rounded-lg bg-[#f97316] text-white hover:bg-[#ea6d0f] transition-colors font-medium"
+          onConfirm={() => {
+            importAllData(pendingBackup);
+            setShowRestoreConfirm(false);
+            setPendingBackup(null);
+            window.location.reload();
+          }}
+          onCancel={() => {
+            setShowRestoreConfirm(false);
+            setPendingBackup(null);
+          }}
+        />
+      )}
+
       {/* CSV Import modal */}
       {showImportModal && (
         <Modal title="Import Filament CSV" onClose={() => setShowImportModal(false)}>
@@ -1087,6 +1180,9 @@ export default function Filament() {
           {toast}
         </div>
       )}
+
+      {/* QR scanner */}
+      {showScanner && <QRScannerModal onClose={() => setShowScanner(false)} />}
     </div>
   );
 }

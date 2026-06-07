@@ -72,13 +72,22 @@ export function useAmsStatus(): UseAmsStatusResult {
   return { printers, lastRefresh, serverOnline, refresh: fetchStatus };
 }
 
-/** Flatten all AMS trays for a given printer into a printerId-indexed slot map. */
+/** Flatten all AMS trays for a given printer into a slot-indexed map.
+ *  Some printers (e.g. H2D) expose a secondary virtual AMS unit whose null
+ *  placeholder trays share slot indices with the real unit.  We keep whichever
+ *  entry has actual data and never let a null placeholder overwrite it. */
 export function flattenAmsTrays(printer: PrinterAmsData | undefined): Record<number, AmsTray> {
   if (!printer) return {};
   const result: Record<number, AmsTray> = {};
   for (const unit of Object.values(printer.ams)) {
     for (const tray of unit.trays) {
-      result[tray.slot] = tray;
+      const trayHasData = tray.colorHex !== null || tray.filamentType !== null;
+      const existing = result[tray.slot];
+      const existingHasData = existing != null &&
+        (existing.colorHex !== null || existing.filamentType !== null);
+      if (!existingHasData || trayHasData) {
+        result[tray.slot] = tray;
+      }
     }
   }
   return result;
