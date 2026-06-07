@@ -25,6 +25,13 @@ export interface BambuParseResult {
   error?: string;
 }
 
+export interface RawDebugResult {
+  pages: number;
+  // Each entry: "=== PAGE N ===" header or "y=NNN  [x=NN]"text" | [x=NN]"text""
+  rowsView: string[];
+  error?: string;
+}
+
 // Matches a Bambu Lab material name anywhere in a line
 const PRODUCT_REGEX =
   /(?:Bambu\s+Lab\s+)?(PLA\s+(?:Matte|Basic|Silk|Metal|Sparkle|CF|\+)?|PETG(?:\s+(?:HF|CF))?|ABS(?:[-\s]CF)?|ASA(?:[-\s]CF)?|TPU(?:\s+95A(?:\s+HF)?)?|PA(?:12)?[-\s]CF|PAHT[-\s]CF|PPA[-\s]CF|PC(?:[-\s]CF)?|Nylon)\b/i;
@@ -201,6 +208,64 @@ function parseItems(lines: string[]): { items: BambuLineItem[]; warnings: string
   }
 
   return { items, warnings };
+}
+
+export async function extractRawDebug(file: File): Promise<RawDebugResult> {
+  let arrayBuffer: ArrayBuffer;
+  try {
+    arrayBuffer = await file.arrayBuffer();
+  } catch {
+    return { pages: 0, rowsView: [], error: 'Could not read the file.' };
+  }
+
+  try {
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const rowsView: string[] = [];
+
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const content = await page.getTextContent();
+
+      rowsView.push(`${'='.repeat(60)}`);
+      rowsView.push(`PAGE ${pageNum} of ${pdf.numPages}`);
+      rowsView.push(`${'='.repeat(60)}`);
+
+      // Group into rows by y (same as parser)
+      const rows = new Map<number, Array<{ x: number; text: string }>>();
+      for (const item of content.items) {
+        if (!('str' in item)) continue;
+        const x = Math.round(item.transform[4]);
+        const y = Math.round(item.transform[5]);
+        if (!rows.has(y)) rows.set(y, []);
+        rows.get(y)!.push({ x, text: item.str });
+      }
+
+      // Emit rows top-to-bottom with positions shown
+      const sortedY = Array.from(rows.keys()).sort((a, b) => b - a);
+      for (const y of sortedY) {
+        const rowItems = rows.get(y)!.sort((a, b) => a.x - b.x);
+        const hasContent = rowItems.some((i) => i.text.trim());
+        if (!hasContent) continue;
+        // Show x positions alongside text so we can see column layout
+        const detail = rowItems.map((i) => `[${i.x}] ${JSON.stringify(i.text)}`).join('  ');
+        // Also show what the parser sees (joined)
+        const joined = rowItems.map((i) => i.text).join(' ');
+        rowsView.push(`y=${String(y).padStart(4)}  → JOINED: ${JSON.stringify(joined)}`);
+        rowsView.push(`         ITEMS:  ${detail}`);
+      }
+      rowsView.push('');
+    }
+
+    // Also log to console for DevTools inspection
+    console.group('[BambuDebug] Raw PDF extraction');
+    console.log(`Pages: ${pdf.numPages}`);
+    console.log(rowsView.join('\n'));
+    console.groupEnd();
+
+    return { pages: pdf.numPages, rowsView };
+  } catch (e) {
+    return { pages: 0, rowsView: [], error: `PDF parse error: ${String(e)}` };
+  }
 }
 
 export async function parseBambuInvoice(file: File): Promise<BambuParseResult> {
