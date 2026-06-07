@@ -27,188 +27,285 @@ export interface BambuParseResult {
 
 export interface RawDebugResult {
   pages: number;
-  // Each entry: "=== PAGE N ===" header or "y=NNN  [x=NN]"text" | [x=NN]"text""
   rowsView: string[];
   error?: string;
 }
 
-// Matches a Bambu Lab material name anywhere in a line
-const PRODUCT_REGEX =
-  /(?:Bambu\s+Lab\s+)?(PLA\s+(?:Matte|Basic|Silk|Metal|Sparkle|CF|\+)?|PETG(?:\s+(?:HF|CF))?|ABS(?:[-\s]CF)?|ASA(?:[-\s]CF)?|TPU(?:\s+95A(?:\s+HF)?)?|PA(?:12)?[-\s]CF|PAHT[-\s]CF|PPA[-\s]CF|PC(?:[-\s]CF)?|Nylon)\b/i;
+// ── Types ────────────────────────────────────────────────────────────────────
 
-const VARIANT_REGEX =
-  /Variant:\s*(.+?)\s*\((\d{4,6})\)(?:\s*\/\s*(Refill|Regular))?(?:\s*\/\s*(\d+(?:\.\d+)?)\s*(kg|g))?/i;
+interface RowItem { x: number; text: string; }
+interface Row { page: number; y: number; items: RowItem[]; }
 
-const SKU_REGEX = /^SKU:\s*(.+)/i;
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
-const DATE_REGEX =
-  /(?:Date|Ordered|Order Date|Invoice Date)[:\s]+([A-Za-z]+ \d+,?\s+\d{4}|\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{4})/i;
+// Text items in the "name" column (left side of page)
+function leftText(row: Row, maxX = 215): string {
+  return row.items
+    .filter(i => i.x <= maxX)
+    .sort((a, b) => a.x - b.x)
+    .map(i => i.text)
+    .join(' ')
+    .trim();
+}
+
+// Text items in a specific x range — used for qty/price columns
+function textAtX(row: Row, xMin: number, xMax: number): string {
+  return row.items
+    .filter(i => i.x >= xMin && i.x <= xMax)
+    .sort((a, b) => a.x - b.x)
+    .map(i => i.text.trim())
+    .filter(Boolean)
+    .join(' ');
+}
+
+// All text joined left-to-right
+function fullText(row: Row): string {
+  return [...row.items].sort((a, b) => a.x - b.x).map(i => i.text).join(' ').trim();
+}
+
+// Only A0x and A1x SKU prefixes are filament — exclude hardware/accessories
+function isFilamentSku(sku: string): boolean {
+  return /^A[01]\d/i.test(sku.trim());
+}
 
 function normalizeMaterial(raw: string): string {
-  const s = raw.toLowerCase();
-  if (s.includes('pla matte') || s.includes('matte pla')) return 'PLA Matte';
-  if (s.includes('pla basic') || s.includes('basic pla')) return 'PLA Basic';
-  if (s.includes('pla silk') || s.includes('silk pla')) return 'PLA Silk';
-  if (s.includes('pla metal')) return 'PLA Metal';
-  if (s.includes('pla sparkle')) return 'PLA Sparkle';
-  if (s.includes('pla+') || s.includes('pla plus')) return 'PLA+';
-  if (s.includes('pla cf')) return 'PLA';
-  if (s.includes('petg hf')) return 'PETG';
-  if (s.includes('petg cf')) return 'PETG';
-  if (s.includes('petg')) return 'PETG';
-  if (s.includes('abs')) return 'ABS';
-  if (s.includes('asa')) return 'ASA';
-  if (s.includes('tpu')) return 'TPU';
-  if (s.includes('pa') || s.includes('nylon') || s.includes('paht') || s.includes('ppa')) return 'Nylon';
-  if (s.includes('pc')) return 'Other';
+  const s = raw.toLowerCase().trim();
+  if (s.startsWith('pla matte'))       return 'PLA Matte';
+  if (s.startsWith('pla basic'))       return 'PLA Basic';
+  if (s.startsWith('pla silk'))        return 'PLA Silk';
+  if (s.startsWith('pla metal'))       return 'PLA';
+  if (s.startsWith('pla translucent')) return 'PLA';
+  if (s.startsWith('pla sparkle'))     return 'PLA Sparkle';
+  if (s.startsWith('pla+') || s.startsWith('pla plus')) return 'PLA+';
+  if (s.startsWith('pla'))             return 'PLA';
+  if (s.startsWith('petg hf'))         return 'PETG';
+  if (s.startsWith('petg cf'))         return 'PETG';
+  if (s.startsWith('petg'))            return 'PETG';
+  if (s.startsWith('abs'))             return 'ABS';
+  if (s.startsWith('asa'))             return 'ASA';
+  if (s.startsWith('tpu'))             return 'TPU';
+  if (s.includes('nylon') || s.includes('pa-cf') || s.includes('pa12') ||
+      s.includes('paht') || s.includes('ppa'))         return 'Nylon';
   return 'Other';
 }
 
-async function extractLines(arrayBuffer: ArrayBuffer): Promise<string[]> {
+function parseWeight(text: string): number {
+  const m = text.match(/(\d+(?:\.\d+)?)\s*(kg|g)\b/i);
+  if (!m) return 1000;
+  return m[2].toLowerCase() === 'kg' ? parseFloat(m[1]) * 1000 : parseFloat(m[1]);
+}
+
+// ── PDF Extraction ───────────────────────────────────────────────────────────
+
+async function extractRows(arrayBuffer: ArrayBuffer): Promise<Row[]> {
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  const allLines: string[] = [];
+  const allRows: Row[] = [];
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
     const content = await page.getTextContent();
 
-    // Group text items by rounded y-coordinate into rows
-    const rows = new Map<number, Array<{ x: number; text: string }>>();
+    const rowMap = new Map<number, RowItem[]>();
     for (const item of content.items) {
-      if (!('str' in item) || !item.str.trim()) continue;
+      if (!('str' in item) || !item.str) continue;
+      const x = Math.round(item.transform[4]);
       const y = Math.round(item.transform[5]);
-      const x = item.transform[4];
-      if (!rows.has(y)) rows.set(y, []);
-      rows.get(y)!.push({ x, text: item.str });
+      if (!rowMap.has(y)) rowMap.set(y, []);
+      rowMap.get(y)!.push({ x, text: item.str });
     }
 
-    // Sort rows top-to-bottom (PDF y=0 at bottom, higher y = higher on page)
-    const sortedY = Array.from(rows.keys()).sort((a, b) => b - a);
+    const sortedY = Array.from(rowMap.keys()).sort((a, b) => b - a);
     for (const y of sortedY) {
-      const rowItems = rows.get(y)!.sort((a, b) => a.x - b.x);
-      allLines.push(rowItems.map((i) => i.text).join(' '));
+      allRows.push({ page: pageNum, y, items: rowMap.get(y)!.sort((a, b) => a.x - b.x) });
     }
   }
 
-  return allLines;
+  return allRows;
 }
 
-function parseItems(lines: string[]): { items: BambuLineItem[]; warnings: string[] } {
+// ── Parser ───────────────────────────────────────────────────────────────────
+
+function parseRows(rows: Row[]): { items: BambuLineItem[]; warnings: string[] } {
   const warnings: string[] = [];
   const items: BambuLineItem[] = [];
 
-  // Find all Variant line indices — they anchor each line item
-  const variantIndices: number[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    if (VARIANT_REGEX.test(lines[i])) variantIndices.push(i);
-  }
+  for (let i = 0; i < rows.length; i++) {
+    const lt = leftText(rows[i]);
 
-  if (variantIndices.length === 0) {
-    return { items, warnings };
-  }
+    // Anchor: row whose left text starts with "SKU:"
+    if (!/^SKU:\s*/i.test(lt)) continue;
 
-  for (let vi = 0; vi < variantIndices.length; vi++) {
-    const vIdx = variantIndices[vi];
-    const prevVIdx = vi > 0 ? variantIndices[vi - 1] : -1;
-    const nextVIdx = vi + 1 < variantIndices.length ? variantIndices[vi + 1] : lines.length;
+    const skuPart = lt.replace(/^SKU:\s*/i, '').trim();
 
-    const variantLine = lines[vIdx];
-    const variantMatch = variantLine.match(VARIANT_REGEX);
-    if (!variantMatch) continue;
+    // Filament SKUs start with A0x or A1x; skip hardware/accessories
+    if (!isFilamentSku(skuPart)) continue;
 
-    const colorName = variantMatch[1].trim();
-    const colorCode = variantMatch[2];
-    const spoolTypeRaw = variantMatch[3];
-    const weightVal = variantMatch[4] ? parseFloat(variantMatch[4]) : 1;
-    const weightUnit = variantMatch[5];
+    // ── Qty + Price ─────────────────────────────────────────────────────────
+    // The SKU may be split across two rows. Qty/price are at x≈222/271 on
+    // whichever row contains "SPLFREE" or the first row after the SKU line
+    // that has a number in the qty column.
+    let qty = 1;
+    let pricePerUnit = 0;
+    let qtyPriceRow = -1;
 
-    const weightG = weightUnit?.toLowerCase() === 'kg' ? weightVal * 1000 : (weightVal >= 1 && !weightUnit ? weightVal * 1000 : weightVal);
-    const spoolType: 'Refill' | 'Regular' = spoolTypeRaw?.toLowerCase() === 'refill' ? 'Refill' : 'Regular';
-    const colorHex = getBambuColorHex(colorCode);
+    for (let scan = i; scan <= Math.min(i + 3, rows.length - 1); scan++) {
+      const qtyRaw = textAtX(rows[scan], 205, 240).trim();
+      const priceRaw = textAtX(rows[scan], 255, 295).trim();
 
-    if (!colorHex) {
-      warnings.push(`Unknown color code ${colorCode} (${colorName}) — assign hex manually`);
+      if (/^\d{1,2}$/.test(qtyRaw)) qty = parseInt(qtyRaw);
+      if (/^\$\d+\.\d{2}$/.test(priceRaw)) {
+        pricePerUnit = parseFloat(priceRaw.slice(1));
+        qtyPriceRow = scan;
+        break;
+      }
     }
 
-    // Backtrack from Variant to find product name and SKU
+    // ── Product name ─────────────────────────────────────────────────────────
+    // Look up to 5 rows above the SKU line for a material name in the left col
     let productRaw = '';
-    let sku = '';
-    const backStart = prevVIdx + 1;
-
-    for (let back = vIdx - 1; back >= backStart; back--) {
-      const ln = lines[back].trim();
-      if (!sku) {
-        const skuMatch = ln.match(SKU_REGEX);
-        if (skuMatch) { sku = skuMatch[1].trim(); continue; }
-      }
-      if (!productRaw && PRODUCT_REGEX.test(ln)) {
-        productRaw = ln;
+    for (let back = i - 1; back >= Math.max(0, i - 5); back--) {
+      const bt = leftText(rows[back]);
+      if (/^(PLA|PETG|ABS|ASA|TPU|PA[-\s]|Nylon|PC\b)/i.test(bt)) {
+        productRaw = bt;
         break;
       }
     }
 
     if (!productRaw) {
-      warnings.push(`Could not identify product name near "${colorName} (${colorCode})"`);
+      warnings.push(`No product name for SKU: ${skuPart}`);
       continue;
     }
 
-    const material = normalizeMaterial(productRaw);
+    // ── Variant ──────────────────────────────────────────────────────────────
+    // Scan forward from just after the qty/price row for "Variant:"
+    const fwdStart = qtyPriceRow >= 0 ? qtyPriceRow + 1 : i + 1;
+    let variantText = '';
 
-    // Find qty and price: check Variant line itself first, then look forward
-    let qty = 1;
-    let pricePerUnit = 0;
-
-    const inlineMatch = variantLine.match(/(\d+)\s+\$(\d+\.\d{2})\s+\$\d+\.\d{2}/);
-    if (inlineMatch) {
-      qty = parseInt(inlineMatch[1]);
-      pricePerUnit = parseFloat(inlineMatch[2]);
-    } else {
-      for (let fwd = vIdx + 1; fwd < Math.min(nextVIdx, vIdx + 6); fwd++) {
-        const ln = lines[fwd].trim();
-
-        // "2 $17.99 $35.98" — qty unit-price total
-        const qtyPriceTotal = ln.match(/^(\d+)\s+\$(\d+\.\d{2})\s+\$\d+\.\d{2}$/);
-        if (qtyPriceTotal) {
-          qty = parseInt(qtyPriceTotal[1]);
-          pricePerUnit = parseFloat(qtyPriceTotal[2]);
-          break;
+    for (let fwd = fwdStart; fwd <= Math.min(fwdStart + 5, rows.length - 1); fwd++) {
+      const vt = leftText(rows[fwd]);
+      if (/^Variant:/i.test(vt)) {
+        variantText = vt;
+        // Append next line if it continues (starts with "(" or "/")
+        if (fwd + 1 < rows.length) {
+          const nextLt = leftText(rows[fwd + 1]);
+          if (nextLt.startsWith('(') || nextLt.startsWith('/')) {
+            variantText += ' ' + nextLt;
+          }
         }
-
-        // "2 $17.99" — qty unit-price
-        const qtyPrice = ln.match(/^(\d+)\s+\$(\d+\.\d{2})$/);
-        if (qtyPrice) {
-          qty = parseInt(qtyPrice[1]);
-          pricePerUnit = parseFloat(qtyPrice[2]);
-          break;
-        }
-
-        // Standalone qty
-        const qtyOnly = ln.match(/^(\d{1,3})$/);
-        if (qtyOnly && !qty) qty = parseInt(qtyOnly[1]);
-
-        // Standalone price "$19.99"
-        const priceOnly = ln.match(/^\$(\d+\.\d{2})$/);
-        if (priceOnly && !pricePerUnit) pricePerUnit = parseFloat(priceOnly[1]);
+        break;
       }
+      // Also stop if we hit the next product's SKU
+      if (/^SKU:\s*A[01]\d/i.test(vt)) break;
+    }
+
+    // ── Parse variant fields ──────────────────────────────────────────────────
+    // Format: "Variant: Color Name (CODE) / Refill / 1kg"
+    // or split: "Variant: Color Name" then "(CODE) / Refill / 1kg"
+    if (!variantText) {
+      warnings.push(`No Variant line found for: ${productRaw} (${skuPart})`);
+      continue;
+    }
+
+    const variantMatch = variantText.match(
+      /Variant:\s*(.+?)\s*\((\d{4,6})\)(.*)/i
+    );
+    if (!variantMatch) {
+      warnings.push(`Could not parse Variant: "${variantText}"`);
+      continue;
+    }
+
+    const colorName = variantMatch[1].trim();
+    const colorCode = variantMatch[2];
+    const rest = variantMatch[3]; // " / Refill / 1kg" etc.
+
+    const spoolType: 'Refill' | 'Regular' = /Refill/i.test(rest) ? 'Refill' : 'Regular';
+    const weightG = parseWeight(rest) || 1000;
+    const colorHex = getBambuColorHex(colorCode);
+
+    if (!colorHex) {
+      warnings.push(`Unknown color code ${colorCode} (${colorName}) — assign hex after import`);
     }
 
     items.push({
       id: crypto.randomUUID(),
       productRaw,
-      material,
+      material: normalizeMaterial(productRaw),
       colorName,
       colorCode,
       colorHex,
       spoolType,
-      weightG: weightG || 1000,
+      weightG,
       qty: Math.max(1, qty),
       pricePerUnit,
-      sku,
+      sku: skuPart,
     });
   }
 
   return { items, warnings };
 }
+
+// ── Public API ───────────────────────────────────────────────────────────────
+
+const DATE_REGEX =
+  /(?:Order\s*Date|Date|Ordered)[:\s]+([A-Za-z]+ \d+,?\s+\d{4}|\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{4})/i;
+
+export async function parseBambuInvoice(file: File): Promise<BambuParseResult> {
+  let arrayBuffer: ArrayBuffer;
+  try {
+    arrayBuffer = await file.arrayBuffer();
+  } catch {
+    return { items: [], invoiceDate: undefined, warnings: [], error: 'Could not read the file.' };
+  }
+
+  let rows: Row[];
+  try {
+    rows = await extractRows(arrayBuffer);
+  } catch {
+    return {
+      items: [],
+      invoiceDate: undefined,
+      warnings: [],
+      error: 'Could not parse PDF. Make sure it is a valid, non-scanned PDF.',
+    };
+  }
+
+  if (rows.length === 0) {
+    return { items: [], invoiceDate: undefined, warnings: [], error: 'PDF appears to be empty or image-only.' };
+  }
+
+  // Sanity check: must look like a Bambu Lab document
+  const allText = rows.map(r => fullText(r)).join(' ');
+  if (!allText.toLowerCase().includes('bambu') && !/SKU:\s*A[01]\d/i.test(allText)) {
+    return {
+      items: [],
+      invoiceDate: undefined,
+      warnings: [],
+      error: 'This does not appear to be a Bambu Lab invoice.',
+    };
+  }
+
+  // Extract invoice date
+  let invoiceDate: string | undefined;
+  for (const row of rows) {
+    const m = fullText(row).match(DATE_REGEX);
+    if (m) { invoiceDate = m[1].trim(); break; }
+  }
+
+  const { items, warnings } = parseRows(rows);
+
+  if (items.length === 0) {
+    return {
+      items: [],
+      invoiceDate,
+      warnings,
+      error: 'No filament line items found. Try debug mode to inspect the raw PDF text.',
+    };
+  }
+
+  return { items, invoiceDate, warnings };
+}
+
+// ── Debug extraction ─────────────────────────────────────────────────────────
 
 export async function extractRawDebug(file: File): Promise<RawDebugResult> {
   let arrayBuffer: ArrayBuffer;
@@ -226,37 +323,32 @@ export async function extractRawDebug(file: File): Promise<RawDebugResult> {
       const page = await pdf.getPage(pageNum);
       const content = await page.getTextContent();
 
-      rowsView.push(`${'='.repeat(60)}`);
+      rowsView.push('='.repeat(60));
       rowsView.push(`PAGE ${pageNum} of ${pdf.numPages}`);
-      rowsView.push(`${'='.repeat(60)}`);
+      rowsView.push('='.repeat(60));
 
-      // Group into rows by y (same as parser)
-      const rows = new Map<number, Array<{ x: number; text: string }>>();
+      const rowMap = new Map<number, Array<{ x: number; text: string }>>();
       for (const item of content.items) {
         if (!('str' in item)) continue;
         const x = Math.round(item.transform[4]);
         const y = Math.round(item.transform[5]);
-        if (!rows.has(y)) rows.set(y, []);
-        rows.get(y)!.push({ x, text: item.str });
+        if (!rowMap.has(y)) rowMap.set(y, []);
+        rowMap.get(y)!.push({ x, text: item.str });
       }
 
-      // Emit rows top-to-bottom with positions shown
-      const sortedY = Array.from(rows.keys()).sort((a, b) => b - a);
+      const sortedY = Array.from(rowMap.keys()).sort((a, b) => b - a);
       for (const y of sortedY) {
-        const rowItems = rows.get(y)!.sort((a, b) => a.x - b.x);
-        const hasContent = rowItems.some((i) => i.text.trim());
+        const items = rowMap.get(y)!.sort((a, b) => a.x - b.x);
+        const hasContent = items.some(i => i.text.trim());
         if (!hasContent) continue;
-        // Show x positions alongside text so we can see column layout
-        const detail = rowItems.map((i) => `[${i.x}] ${JSON.stringify(i.text)}`).join('  ');
-        // Also show what the parser sees (joined)
-        const joined = rowItems.map((i) => i.text).join(' ');
-        rowsView.push(`y=${String(y).padStart(4)}  → JOINED: ${JSON.stringify(joined)}`);
+        const detail = items.map(i => `[x${i.x}] ${JSON.stringify(i.text)}`).join('  ');
+        const joined = items.map(i => i.text).join(' ');
+        rowsView.push(`y=${String(y).padStart(4)}  JOINED: ${JSON.stringify(joined)}`);
         rowsView.push(`         ITEMS:  ${detail}`);
       }
       rowsView.push('');
     }
 
-    // Also log to console for DevTools inspection
     console.group('[BambuDebug] Raw PDF extraction');
     console.log(`Pages: ${pdf.numPages}`);
     console.log(rowsView.join('\n'));
@@ -266,63 +358,4 @@ export async function extractRawDebug(file: File): Promise<RawDebugResult> {
   } catch (e) {
     return { pages: 0, rowsView: [], error: `PDF parse error: ${String(e)}` };
   }
-}
-
-export async function parseBambuInvoice(file: File): Promise<BambuParseResult> {
-  let arrayBuffer: ArrayBuffer;
-  try {
-    arrayBuffer = await file.arrayBuffer();
-  } catch {
-    return { items: [], invoiceDate: undefined, warnings: [], error: 'Could not read the file.' };
-  }
-
-  let lines: string[];
-  try {
-    lines = await extractLines(arrayBuffer);
-  } catch {
-    return {
-      items: [],
-      invoiceDate: undefined,
-      warnings: [],
-      error: 'Could not parse PDF. Make sure it is a valid, non-scanned PDF.',
-    };
-  }
-
-  if (lines.length === 0) {
-    return { items: [], invoiceDate: undefined, warnings: [], error: 'PDF appears to be empty or image-only.' };
-  }
-
-  // Sanity check: must look like a Bambu Lab document
-  const fullText = lines.join(' ');
-  if (!fullText.toLowerCase().includes('bambu') && !VARIANT_REGEX.test(fullText)) {
-    return {
-      items: [],
-      invoiceDate: undefined,
-      warnings: [],
-      error: 'This does not appear to be a Bambu Lab invoice. No Bambu products or Variant lines found.',
-    };
-  }
-
-  // Extract invoice date
-  let invoiceDate: string | undefined;
-  for (const line of lines) {
-    const dateMatch = line.match(DATE_REGEX);
-    if (dateMatch) {
-      invoiceDate = dateMatch[1].trim();
-      break;
-    }
-  }
-
-  const { items, warnings } = parseItems(lines);
-
-  if (items.length === 0) {
-    return {
-      items: [],
-      invoiceDate,
-      warnings,
-      error: 'No filament line items found. The invoice format may not be supported — check the warnings.',
-    };
-  }
-
-  return { items, invoiceDate, warnings };
 }
