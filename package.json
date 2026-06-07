@@ -13,6 +13,7 @@
     "html5-qrcode": "^2.3.8",
     "jszip": "^3.10.1",
     "papaparse": "^5.5.3",
+    "pdfjs-dist": "^6.0.227",
     "qrcode": "^1.5.4",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.5",

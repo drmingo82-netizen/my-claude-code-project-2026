@@ -11,11 +11,15 @@ import FormField from '../components/ui/FormField';
 import SpoolLabelPanel from '../components/labels/SpoolLabelPanel';
 import DryingTab from '../components/filament/DryingTab';
 import FilamentImportPanel, { type ImportableSpool } from '../components/modals/FilamentImportPanel';
+import BambuInvoiceImportPanel from '../components/modals/BambuInvoiceImportPanel';
 import { useLocationStore } from '../stores/locationStore';
 import { useAmsStatus, flattenAmsTrays } from '../hooks/useAmsStatus';
 import { colorMatches, isDark, generateColorFromName } from '../utils/colorUtils';
 
-const MATERIALS = ['PLA', 'PETG', 'ABS', 'ASA', 'TPU', 'Nylon', 'Resin', 'Other'];
+const MATERIALS = [
+  'PLA', 'PLA Basic', 'PLA Matte', 'PLA Silk', 'PLA Metal', 'PLA Sparkle', 'PLA+',
+  'PETG', 'ABS', 'ASA', 'TPU', 'Nylon', 'Resin', 'Other',
+];
 
 const fmt2 = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
@@ -511,6 +515,10 @@ export default function Filament() {
 
   // CSV import modal
   const [showImportModal, setShowImportModal] = useState(false);
+  // Bambu invoice import modal
+  const [showBambuImportModal, setShowBambuImportModal] = useState(false);
+  // IDs of spools imported from Bambu invoice that have no colorHex
+  const [unknownColorIds, setUnknownColorIds] = useState<Set<string>>(new Set());
   // IDs of newly-imported spools that still need a price (costPerSpool === 0)
   const [incompleteImportedIds, setIncompleteImportedIds] = useState<Set<string>>(new Set());
   const [spoolFilter, setSpoolFilter] = useState<'all' | 'incomplete'>('all');
@@ -549,6 +557,16 @@ export default function Filament() {
     if (newIncomplete.length > 0) setSpoolFilter('incomplete');
     setShowImportModal(false);
     showToast(`${rows.length} spool${rows.length !== 1 ? 's' : ''} imported successfully`);
+  }
+
+  function handleBambuImport(rows: ImportableSpool[]) {
+    const prevIds = new Set(useFilamentStore.getState().spools.map((s) => s.id));
+    for (const row of rows) addSpool(row);
+    const newSpools = useFilamentStore.getState().spools.filter((s) => !prevIds.has(s.id));
+    const noHex = newSpools.filter((s) => !s.colorHex).map((s) => s.id);
+    if (noHex.length > 0) setUnknownColorIds(new Set(noHex));
+    setShowBambuImportModal(false);
+    showToast(`${rows.length} spool${rows.length !== 1 ? 's' : ''} imported from Bambu Lab invoice`);
   }
 
   function handleSave(data: FormData) {
@@ -665,6 +683,12 @@ export default function Filament() {
             Import CSV
           </button>
           <button
+            onClick={() => setShowBambuImportModal(true)}
+            className="text-xs px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            Import from Invoice
+          </button>
+          <button
             onClick={() => setModal('add')}
             className="bg-[#f97316] text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-[#ea6d0f] transition-colors"
           >
@@ -720,6 +744,26 @@ export default function Filament() {
                 ✕
               </button>
             </div>
+          </div>
+        );
+      })()}
+
+      {/* Unknown-color banner (after Bambu invoice import) */}
+      {unknownColorIds.size > 0 && (() => {
+        const count = spools.filter((s) => unknownColorIds.has(s.id) && !s.colorHex).length;
+        if (count === 0) return null;
+        return (
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <p className="text-xs font-medium text-amber-700">
+              {count} spool{count !== 1 ? 's' : ''} need a color assigned — open each spool to add a hex color
+            </p>
+            <button
+              onClick={() => setUnknownColorIds(new Set())}
+              className="text-xs text-amber-400 hover:text-amber-600 transition-colors shrink-0"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
           </div>
         );
       })()}
@@ -984,6 +1028,16 @@ export default function Filament() {
             existingSpools={spools}
             onImport={handleCsvImport}
             onClose={() => setShowImportModal(false)}
+          />
+        </Modal>
+      )}
+
+      {/* Bambu Invoice Import modal */}
+      {showBambuImportModal && (
+        <Modal title="Import from Bambu Lab Invoice" onClose={() => setShowBambuImportModal(false)}>
+          <BambuInvoiceImportPanel
+            onImport={handleBambuImport}
+            onClose={() => setShowBambuImportModal(false)}
           />
         </Modal>
       )}
