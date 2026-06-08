@@ -10,6 +10,7 @@ const navItems = [
   { to: '/colors', label: 'Colors', icon: '🎨' },
   { to: '/hardware', label: 'Hardware', icon: '🌡️' },
   { to: '/products', label: 'Products', icon: '🖨️' },
+  { to: '/skus', label: 'SKU Catalog', icon: '🏷️' },
   { to: '/sales', label: 'Sales', icon: '💰' },
   { to: '/calculator', label: 'Calculator', icon: '🧮' },
   { to: '/settings',  label: 'Settings',   icon: '⚙️' },

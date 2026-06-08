@@ -164,6 +164,26 @@ export interface Product {
   notes?: string;
 }
 
+// ── SKU Catalog ───────────────────────────────────────────────────────────────
+
+export type SKUCategory = 'Fidget' | 'Animal' | 'Keychain' | 'Organizational' | 'Novelty';
+export type SKUStatus = 'Active' | 'In Development' | 'Inactive';
+
+export interface SKUItem {
+  id: string;
+  sku: string;
+  name: string;
+  category: SKUCategory;
+  quantity: number;
+  salePrice?: number;
+  filamentCost?: number;
+  printTimeMinutes?: number;
+  weightGrams?: number;
+  amsSlots?: number;
+  status: SKUStatus;
+  notes?: string;
+}
+
 export interface SaleEntry {
   id: string;
   productId: string;
