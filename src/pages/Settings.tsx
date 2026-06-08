@@ -86,24 +86,44 @@ function BambuCloudSection() {
       });
 
       const data: {
+        // token field — Bambu has used several names across API versions
         token?: string;
         accessToken?: string;
+        access_token?: string;
+        jwt?: string;
+        auth_token?: string;
+        // userId field variants
         uid?: number | string;
+        userId?: number | string;
+        user_id?: number | string;
+        id?: number | string;
+        // flow control
         loginType?: string;
         tfaKey?: string;
+        // Bambu status: 0 = success, non-zero = failure (HTTP is always 200)
+        code?: number;
         message?: string;
         error?: string;
       } = await res.json();
 
-      // 2FA gate
+      // 2FA gate — only present on the initial login response that needs a code
       if (data.loginType === 'verifyCode' || data.tfaKey) {
         setShowTfa(true);
         setLoading(false);
         return;
       }
 
-      const token  = data.token ?? data.accessToken ?? '';
-      const userId = data.uid != null ? String(data.uid) : '';
+      // Bambu signals failure via code != 0 even when HTTP status is 200
+      if (data.code !== undefined && data.code !== 0) {
+        setError(data.message ?? data.error ?? `Auth failed (Bambu code ${data.code})`);
+        setLoading(false);
+        return;
+      }
+
+      const token =
+        data.token ?? data.accessToken ?? data.access_token ?? data.jwt ?? data.auth_token ?? '';
+      const rawUid = data.uid ?? data.userId ?? data.user_id ?? data.id;
+      const userId = rawUid != null ? String(rawUid) : '';
 
       if (!token || !userId) {
         setError(data.message ?? data.error ?? `Login failed (HTTP ${res.status})`);

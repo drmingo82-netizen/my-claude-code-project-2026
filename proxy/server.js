@@ -93,6 +93,7 @@ const server = http.createServer(async (req, res) => {
         body: JSON.stringify(bambuBody),
       });
       const data = await upstream.json();
+      console.log(`Bambu login response (HTTP ${upstream.status}):`, JSON.stringify(data));
       res.writeHead(upstream.status, { ...hdrs, 'Content-Type': 'application/json' });
       res.end(JSON.stringify(data));
       return;
