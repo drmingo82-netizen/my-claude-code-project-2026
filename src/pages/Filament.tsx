@@ -16,7 +16,7 @@ import FilamentImportPanel, { type ImportableSpool } from '../components/modals/
 import BambuInvoiceImportPanel from '../components/modals/BambuInvoiceImportPanel';
 import { useLocationStore } from '../stores/locationStore';
 import { useAmsStatus, flattenAmsTrays } from '../hooks/useAmsStatus';
-import { hueDiff, isDark, generateColorFromName } from '../utils/colorUtils';
+import { hueDiff, isDark, generateColorFromName, hexToHsl } from '../utils/colorUtils';
 import { spoolNfcUrl } from '../utils/scanUtils';
 
 const MATERIAL_CATEGORIES: { group: string; items: string[] }[] = [
@@ -273,6 +273,29 @@ function relTime(iso: string): string {
   return `${Math.floor(min / 60)}h ago`;
 }
 
+// Derive a readable color name from HSL values for AMS-imported spools
+function hexToColorName(hex: string): string {
+  const { h, s, l } = hexToHsl(hex);
+  if (l < 12) return 'Black';
+  if (l > 88) return 'White';
+  if (s < 12) {
+    if (l < 35) return 'Dark Gray';
+    if (l > 65) return 'Light Gray';
+    return 'Gray';
+  }
+  if (h < 15 || h >= 345) return l < 40 ? 'Dark Red' : 'Red';
+  if (h < 40) return 'Orange';
+  if (h < 65) return 'Yellow';
+  if (h < 80) return 'Yellow Green';
+  if (h < 150) return l < 40 ? 'Dark Green' : 'Green';
+  if (h < 175) return 'Teal';
+  if (h < 210) return 'Cyan';
+  if (h < 255) return l < 40 ? 'Dark Blue' : 'Blue';
+  if (h < 285) return 'Purple';
+  if (h < 315) return 'Magenta';
+  return 'Pink';
+}
+
 function AmsSlotRow({
   slot,
   printerId,
@@ -284,8 +307,10 @@ function AmsSlotRow({
 }) {
   const spools = useFilamentStore((s) => s.spools);
   const amsMappings = useFilamentStore((s) => s.amsMappings);
+  const addSpool = useFilamentStore((s) => s.addSpool);
   const setAmsMapping = useFilamentStore((s) => s.setAmsMapping);
   const clearAmsMapping = useFilamentStore((s) => s.clearAmsMapping);
+  const [imported, setImported] = useState(false);
 
   const linkedSpoolId = amsMappings.find(
     (m) => m.printerId === printerId && m.amsSlot === slot,
@@ -311,6 +336,45 @@ function AmsSlotRow({
   const hex = tray?.colorHex ?? null;
   const dark = hex ? isDark(hex) : false;
   const hasData = tray !== null;
+
+  function importFromAms() {
+    if (!tray || (!tray.colorHex && !tray.filamentType)) return;
+
+    // Derive color name: use trayIdName if it looks descriptive (not a raw ID code),
+    // otherwise fall back to a name derived from the hex value
+    let colorName: string;
+    const name = tray.trayIdName ?? '';
+    const looksDescriptive = /[A-Za-z]/.test(name) && !/^GF[A-Z0-9]+$/.test(name) && name.length > 3;
+    if (looksDescriptive) {
+      colorName = name;
+    } else if (tray.colorHex) {
+      colorName = hexToColorName(tray.colorHex);
+    } else {
+      colorName = 'Unknown';
+    }
+
+    const prevIds = new Set(useFilamentStore.getState().spools.map((s) => s.id));
+
+    addSpool({
+      brand: 'Bambu Lab',
+      material: tray.filamentType ?? 'PLA',
+      color: colorName,
+      colorHex: tray.colorHex ?? undefined,
+      weightTotalG: 1000,
+      weightRemainingG: tray.remainPct !== null && tray.remainPct >= 0
+        ? Math.round(1000 * tray.remainPct / 100)
+        : 1000,
+      costPerSpool: 0,
+      purchasedAt: new Date().toISOString().slice(0, 10),
+    });
+
+    const newSpools = useFilamentStore.getState().spools.filter((s) => !prevIds.has(s.id));
+    if (newSpools.length > 0) {
+      setAmsMapping(printerId, slot, newSpools[0].id);
+    }
+    setImported(true);
+    setTimeout(() => setImported(false), 3000);
+  }
 
   return (
     <div className="flex items-start gap-3 p-3 bg-slate-50/70 rounded-xl border border-slate-100">
@@ -382,32 +446,56 @@ function AmsSlotRow({
             </button>
           </div>
         ) : suggestion ? (
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] text-amber-700">
-              💡 {suggestion.brand} {suggestion.material} {suggestion.color}
-            </span>
-            <button
-              onClick={() => setAmsMapping(printerId, slot, suggestion.id)}
-              className="text-[10px] font-semibold text-[#f97316] hover:underline"
-            >
-              Link?
-            </button>
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] text-amber-700">
+                💡 {suggestion.brand} {suggestion.material} {suggestion.color}
+              </span>
+              <button
+                onClick={() => setAmsMapping(printerId, slot, suggestion.id)}
+                className="text-[10px] font-semibold text-[#f97316] hover:underline"
+              >
+                Link?
+              </button>
+            </div>
+            {imported ? (
+              <span className="text-[10px] text-emerald-600 font-medium">✓ Added to inventory</span>
+            ) : hasData && (
+              <button
+                onClick={importFromAms}
+                className="text-[10px] text-violet-600 hover:underline font-medium"
+              >
+                ↓ Import as new spool
+              </button>
+            )}
           </div>
         ) : (
-          <select
-            value=""
-            onChange={(e) => e.target.value && setAmsMapping(printerId, slot, e.target.value)}
-            className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-500 bg-white focus:outline-none focus:ring-1 focus:ring-[#f97316]"
-          >
-            <option value="">
-              {hasData ? '❓ Unknown — assign from inventory' : '— Unassigned —'}
-            </option>
-            {spools.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.brand} {s.material} {s.color} ({s.weightRemainingG}g)
+          <div className="space-y-1.5">
+            <select
+              value=""
+              onChange={(e) => e.target.value && setAmsMapping(printerId, slot, e.target.value)}
+              className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-500 bg-white focus:outline-none focus:ring-1 focus:ring-[#f97316]"
+            >
+              <option value="">
+                {hasData ? '❓ Unknown — assign from inventory' : '— Unassigned —'}
               </option>
-            ))}
-          </select>
+              {spools.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.brand} {s.material} {s.color} ({s.weightRemainingG}g)
+                </option>
+              ))}
+            </select>
+            {imported ? (
+              <span className="text-[10px] text-emerald-600 font-medium">✓ Added to inventory</span>
+            ) : hasData && (
+              <button
+                onClick={importFromAms}
+                className="text-[10px] text-violet-600 hover:underline font-medium"
+              >
+                ↓ Import as new spool
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>
