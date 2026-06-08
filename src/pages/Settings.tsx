@@ -1,7 +1,17 @@
 import { useState } from 'react';
 import { useSettingsStore } from '../stores/settingsStore';
 
-const TOKEN_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
+function decodeJwtUserId(jwt: string): string {
+  try {
+    // JWT payload is URL-safe base64 (no padding) — normalise before atob()
+    const b64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const claims = JSON.parse(atob(b64));
+    // Bambu puts the numeric user id in 'uid'; fall back to standard 'sub'
+    return claims.uid != null ? String(claims.uid) : (claims.sub ?? '');
+  } catch {
+    return '';
+  }
+}
 
 function proxyLoginUrl(wssUrl: string): string {
   return wssUrl
@@ -86,18 +96,15 @@ function BambuCloudSection() {
       });
 
       const data: {
-        // token field — Bambu has used several names across API versions
-        token?: string;
         accessToken?: string;
         access_token?: string;
+        token?: string;
         jwt?: string;
         auth_token?: string;
-        // userId field variants
-        uid?: number | string;
-        userId?: number | string;
-        user_id?: number | string;
-        id?: number | string;
-        // flow control
+        refreshToken?: string;
+        refresh_token?: string;
+        expiresIn?: number;
+        expires_in?: number;
         loginType?: string;
         tfaKey?: string;
         // Bambu status: 0 = success, non-zero = failure (HTTP is always 200)
@@ -120,22 +127,31 @@ function BambuCloudSection() {
         return;
       }
 
-      const token =
-        data.token ?? data.accessToken ?? data.access_token ?? data.jwt ?? data.auth_token ?? '';
-      const rawUid = data.uid ?? data.userId ?? data.user_id ?? data.id;
-      const userId = rawUid != null ? String(rawUid) : '';
+      // accessToken confirmed field name; fall back to other variants just in case
+      const accessToken =
+        data.accessToken ?? data.access_token ?? data.token ?? data.jwt ?? data.auth_token ?? '';
 
-      if (!token || !userId) {
+      if (!accessToken) {
         setError(data.message ?? data.error ?? `Login failed (HTTP ${res.status})`);
         setLoading(false);
         return;
       }
 
+      // userId is not in the response body — decode it from the JWT payload
+      const userId = decodeJwtUserId(accessToken);
+      if (!userId) {
+        setError('Could not decode user ID from token — please try again.');
+        setLoading(false);
+        return;
+      }
+
+      const expiresInSec = data.expiresIn ?? data.expires_in ?? 7776000; // 90 days
       setBambuCredentials({
         email,
         userId,
-        accessToken: token,
-        tokenExpiry: new Date(Date.now() + TOKEN_LIFETIME_MS).toISOString(),
+        accessToken,
+        refreshToken: data.refreshToken ?? data.refresh_token ?? '',
+        tokenExpiry: new Date(Date.now() + expiresInSec * 1000).toISOString(),
       });
       setPassword('');
       setTfaCode('');

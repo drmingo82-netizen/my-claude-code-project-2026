@@ -5,6 +5,7 @@ interface SettingsStore {
   bambuEmail: string;
   bambuUserId: string;
   bambuAccessToken: string;
+  bambuRefreshToken: string;
   bambuTokenExpiry: string;
   proxyUrl: string;
 
@@ -12,6 +13,7 @@ interface SettingsStore {
     email: string;
     userId: string;
     accessToken: string;
+    refreshToken: string;
     tokenExpiry: string;
   }) => void;
   clearBambuCredentials: () => void;
@@ -24,14 +26,15 @@ export const useSettingsStore = create<SettingsStore>()(
       bambuEmail: '',
       bambuUserId: '',
       bambuAccessToken: '',
+      bambuRefreshToken: '',
       bambuTokenExpiry: '',
       proxyUrl: '',
 
-      setBambuCredentials: ({ email, userId, accessToken, tokenExpiry }) =>
-        set({ bambuEmail: email, bambuUserId: userId, bambuAccessToken: accessToken, bambuTokenExpiry: tokenExpiry }),
+      setBambuCredentials: ({ email, userId, accessToken, refreshToken, tokenExpiry }) =>
+        set({ bambuEmail: email, bambuUserId: userId, bambuAccessToken: accessToken, bambuRefreshToken: refreshToken, bambuTokenExpiry: tokenExpiry }),
 
       clearBambuCredentials: () =>
-        set({ bambuEmail: '', bambuUserId: '', bambuAccessToken: '', bambuTokenExpiry: '' }),
+        set({ bambuEmail: '', bambuUserId: '', bambuAccessToken: '', bambuRefreshToken: '', bambuTokenExpiry: '' }),
 
       setProxyUrl: (url) => set({ proxyUrl: url }),
     }),
