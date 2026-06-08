@@ -8,8 +8,9 @@ function proxyBase(wssUrl: string): string {
     .replace(/\/$/, '');
 }
 
-function proxyLoginUrl(wssUrl: string):   string { return proxyBase(wssUrl) + '/login';   }
-function proxyProfileUrl(wssUrl: string): string { return proxyBase(wssUrl) + '/profile'; }
+function proxyLoginUrl(wssUrl: string):    string { return proxyBase(wssUrl) + '/login';      }
+function proxySendCodeUrl(wssUrl: string): string { return proxyBase(wssUrl) + '/send-code'; }
+function proxyProfileUrl(wssUrl: string):  string { return proxyBase(wssUrl) + '/profile';   }
 
 function tryDecodeJwtUid(token: string): string {
   // Standard JWTs start with "eyJ" (base64 of '{"').  Bambu's opaque tokens
@@ -207,8 +208,10 @@ function BambuCloudSection() {
   const [password, setPassword] = useState('');
   const [tfaCode, setTfaCode] = useState('');
   const [showTfa, setShowTfa] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState('');
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState('');
+  const [resending, setResending] = useState(false);
+  const [resendOk, setResendOk]   = useState(false);
   const [proxyDraft, setProxyDraft] = useState(proxyUrl);
 
   const isConnected = Boolean(bambuUserId && bambuAccessToken);
@@ -317,6 +320,25 @@ function BambuCloudSection() {
     }
   }
 
+  async function handleResendCode() {
+    if (!email || resending) return;
+    setResending(true);
+    setResendOk(false);
+    try {
+      await fetch(proxySendCodeUrl(proxyUrl), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      setResendOk(true);
+      setTimeout(() => setResendOk(false), 4000);
+    } catch {
+      // silent — user will just not see the confirmation
+    } finally {
+      setResending(false);
+    }
+  }
+
   function handleDisconnect() {
     clearBambuCredentials();
     setEmail('');
@@ -373,9 +395,19 @@ function BambuCloudSection() {
 
           {showTfa && (
             <div className="rounded-lg bg-amber-50 border border-amber-100 p-3 space-y-2">
-              <p className="text-xs text-amber-800 font-medium">
-                Verification required — check your email for a 6-digit code.
-              </p>
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-xs text-amber-800 font-medium">
+                  Verification required — check your email for a 6-digit code.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleResendCode}
+                  disabled={resending}
+                  className="shrink-0 text-[11px] text-amber-700 underline hover:text-amber-900 disabled:opacity-50 transition-colors whitespace-nowrap"
+                >
+                  {resending ? 'Sending…' : resendOk ? 'Sent ✓' : 'Resend code'}
+                </button>
+              </div>
               <InputField
                 label="Verification Code"
                 type="text"

@@ -10,8 +10,9 @@ const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
   : [];
 
-const BAMBU_LOGIN_URL   = 'https://api.bambulab.com/v1/user-service/user/login';
-const BAMBU_PROFILE_URL = 'https://api.bambulab.com/v1/user-service/my/profile';
+const BAMBU_LOGIN_URL      = 'https://api.bambulab.com/v1/user-service/user/login';
+const BAMBU_PROFILE_URL    = 'https://api.bambulab.com/v1/user-service/my/profile';
+const BAMBU_SENDEMAIL_URL  = 'https://api.bambulab.com/v1/user-service/user/sendemail/code';
 
 // ── CORS helpers ──────────────────────────────────────────────────────────────
 
@@ -96,6 +97,54 @@ const server = http.createServer(async (req, res) => {
       });
       const data = await upstream.json();
       console.log(`Bambu login response (HTTP ${upstream.status}):`, JSON.stringify(data));
+
+      // Bambu does NOT auto-send the verification email — a separate sendemail call
+      // is required after the initial login returns loginType: "verifyCode".
+      // Only fire it on the first step (no code in the request body).
+      if (data.loginType === 'verifyCode' && !code) {
+        try {
+          const sendRes = await fetch(BAMBU_SENDEMAIL_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, type: 'codeLogin' }),
+          });
+          const sendData = await sendRes.json();
+          console.log(`Send email code response (HTTP ${sendRes.status}):`, JSON.stringify(sendData));
+        } catch (sendErr) {
+          // Non-fatal: log it but still return the verifyCode response so the
+          // client shows the code input field — user can try the Send Code button.
+          console.error('Failed to trigger verification email:', sendErr.message);
+        }
+      }
+
+      res.writeHead(upstream.status, { ...hdrs, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(data));
+      return;
+    }
+
+    // POST /send-code — (re)sends the Bambu verification email; safe to call multiple times
+    if (url === '/send-code' && method === 'POST') {
+      let body;
+      try {
+        body = await readJson(req);
+      } catch {
+        res.writeHead(400, { ...hdrs, 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+        return;
+      }
+      const { email } = body;
+      if (!email) {
+        res.writeHead(400, { ...hdrs, 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'email required' }));
+        return;
+      }
+      const upstream = await fetch(BAMBU_SENDEMAIL_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, type: 'codeLogin' }),
+      });
+      const data = await upstream.json();
+      console.log(`Send code response (HTTP ${upstream.status}):`, JSON.stringify(data));
       res.writeHead(upstream.status, { ...hdrs, 'Content-Type': 'application/json' });
       res.end(JSON.stringify(data));
       return;
