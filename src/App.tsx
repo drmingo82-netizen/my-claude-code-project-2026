@@ -14,6 +14,7 @@ import Hardware from './pages/Hardware';
 import ScanLanding from './pages/ScanLanding';
 import FilamentDebug from './pages/FilamentDebug';
 import { useDryingStore } from './stores/dryingStore';
+import { useJobTracker } from './hooks/useJobTracker';
 
 // Runs globally so timers fire notifications even when user navigates away from Drying tab
 function TimerWatcher() {
@@ -41,10 +42,17 @@ function TimerWatcher() {
   return null;
 }
 
+// Runs globally — watches printer gcodeState transitions and drives auto-deduction
+function JobTracker() {
+  useJobTracker();
+  return null;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <TimerWatcher />
+      <JobTracker />
       <Routes>
         {/* Scan landing — no nav chrome, opened directly from QR codes on phones */}
         <Route path="scan" element={<ScanLanding />} />

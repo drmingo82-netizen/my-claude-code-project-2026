@@ -112,6 +112,34 @@ export interface AmsSlotColor {
   material?: string;
 }
 
+// ── Active job tracking / auto-deduction ─────────────────────────────────────
+
+export interface ActivePrintJob {
+  jobId: string;
+  printerId: string;
+  gcodeFile: string;
+  startedAt: string;
+  calculatedGrams: Record<number, number>;  // amsSlot → grams (populated by estimator)
+  spoolAssignments: Record<number, string>; // amsSlot → spoolId (snapshot at start)
+  lastProgressPct: number;
+  status: 'running' | 'complete' | 'cancelled' | 'failed';
+}
+
+export type DeductionType = 'automatic' | 'partial' | 'manual';
+
+export interface UsageHistoryRecord {
+  id: string;
+  spoolId: string;
+  jobId: string;
+  gcodeFile: string;
+  gramsUsed: number;
+  printerId: string;
+  amsSlot: number;
+  completedAt: string;
+  deductionType: DeductionType;
+  completionPct?: number; // set for partial deductions
+}
+
 export interface AmsPreset {
   id: string;
   name: string;
