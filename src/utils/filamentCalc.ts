@@ -1,3 +1,5 @@
+import JSZip from 'jszip';
+
 /**
  * Extrusion length (mm) per tool/AMS slot index.
  * Key = tool index (0-based), value = total mm extruded.
@@ -127,4 +129,27 @@ export function parseGcodeExtrusion(gcodeText: string): ExtrusionByTool {
   }
 
   return toolTotals;
+}
+
+// ── 3MF extraction ────────────────────────────────────────────────────────────
+
+/**
+ * Extracts raw G-code text from a Bambu Studio .3mf file (ZIP archive).
+ *
+ * Search order:
+ *  1. Metadata/plate_1.gcode  (Bambu Studio standard path)
+ *  2. Any file matching plate_\d+.gcode
+ *  3. Any file ending in .gcode (last resort)
+ */
+export async function extractGcodeFrom3mf(file: File): Promise<string> {
+  const zip = await JSZip.loadAsync(file);
+
+  const gcodeFile =
+    zip.file('Metadata/plate_1.gcode') ??
+    zip.file(/plate_\d+\.gcode/)[0] ??
+    zip.file(/.*\.gcode/)[0];
+
+  if (!gcodeFile) throw new Error('No G-code file found inside .3mf archive');
+
+  return gcodeFile.async('string');
 }

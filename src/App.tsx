@@ -12,6 +12,7 @@ import Locations from './pages/Locations';
 import Colors from './pages/Colors';
 import Hardware from './pages/Hardware';
 import ScanLanding from './pages/ScanLanding';
+import FilamentDebug from './pages/FilamentDebug';
 import { useDryingStore } from './stores/dryingStore';
 
 // Runs globally so timers fire notifications even when user navigates away from Drying tab
@@ -47,6 +48,8 @@ export default function App() {
       <Routes>
         {/* Scan landing — no nav chrome, opened directly from QR codes on phones */}
         <Route path="scan" element={<ScanLanding />} />
+        {/* Dev-only: filament calc debugger — drop a .3mf to verify gram math */}
+        <Route path="dev/filament-debug" element={<FilamentDebug />} />
         <Route element={<AppLayout />}>
           <Route index element={<Dashboard />} />
           <Route path="orders" element={<Orders />} />
