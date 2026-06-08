@@ -31,9 +31,20 @@ export const useFilamentStore = create<FilamentStore>()(
         set((s) => ({
           spools: [...s.spools, { ...spool, id: crypto.randomUUID() }],
         })),
-      updateSpool: (id, spool) =>
+      updateSpool: (id, updates) =>
         set((s) => ({
-          spools: s.spools.map((sp) => (sp.id === id ? { ...sp, ...spool } : sp)),
+          spools: s.spools.map((sp) => {
+            if (sp.id !== id) return sp;
+            const merged = { ...sp, ...updates };
+            // Reset low-stock alert when weight is manually raised above the threshold
+            if ('weightRemainingG' in updates) {
+              const threshold = merged.lowStockThresholdGrams ?? 100;
+              if (merged.weightRemainingG > threshold) {
+                merged.lowStockAlertSent = false;
+              }
+            }
+            return merged;
+          }),
         })),
       deleteSpool: (id) =>
         set((s) => ({

@@ -15,6 +15,7 @@ import ScanLanding from './pages/ScanLanding';
 import FilamentDebug from './pages/FilamentDebug';
 import { useDryingStore } from './stores/dryingStore';
 import { useJobTracker } from './hooks/useJobTracker';
+import ToastContainer from './components/ui/ToastContainer';
 
 // Runs globally so timers fire notifications even when user navigates away from Drying tab
 function TimerWatcher() {
@@ -53,6 +54,7 @@ export default function App() {
     <BrowserRouter>
       <TimerWatcher />
       <JobTracker />
+      <ToastContainer />
       <Routes>
         {/* Scan landing — no nav chrome, opened directly from QR codes on phones */}
         <Route path="scan" element={<ScanLanding />} />

@@ -22,6 +22,8 @@ export interface FilamentSpool {
   locationId?: string;
   nfcProgrammed?: boolean;
   nfcProgrammedAt?: string; // ISO date
+  lowStockThresholdGrams?: number; // default: 100g; alert fires when remaining drops to or below this
+  lowStockAlertSent?: boolean;     // prevents duplicate alerts; reset when weight rises above threshold
 }
 
 // ── Hardware registry ─────────────────────────────────────────────────────────

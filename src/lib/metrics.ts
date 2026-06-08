@@ -56,7 +56,7 @@ export function computeKPIs(
     0
   );
   const lowSpools = spools.filter(
-    (s) => s.weightTotalG > 0 && s.weightRemainingG / s.weightTotalG < 0.2
+    (s) => s.weightRemainingG <= (s.lowStockThresholdGrams ?? 100),
   );
 
   return { totalRevenue, netProfit, avgMarginPct, totalOrders, filamentValue, lowSpools };

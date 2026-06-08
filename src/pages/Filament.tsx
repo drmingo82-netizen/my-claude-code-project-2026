@@ -13,6 +13,7 @@ import QRScannerModal from '../components/scanner/QRScannerModal';
 import { exportAllData, importAllData, readBackupFile } from '../lib/dataBackup';
 import DryingTab from '../components/filament/DryingTab';
 import PrinterSetupPanel from '../components/filament/PrinterSetupPanel';
+import SpoolHistoryTab from '../components/filament/SpoolHistoryTab';
 import FilamentImportPanel, { type ImportableSpool } from '../components/modals/FilamentImportPanel';
 import BambuInvoiceImportPanel from '../components/modals/BambuInvoiceImportPanel';
 import { useLocationStore } from '../stores/locationStore';
@@ -54,6 +55,7 @@ const emptyForm = (): FormData => ({
   purchasedAt: new Date().toISOString().slice(0, 10),
   notes: '',
   locationId: undefined,
+  lowStockThresholdGrams: 100,
 });
 
 function validate(f: FormData): Partial<Record<keyof FormData, string>> {
@@ -213,6 +215,13 @@ function SpoolForm({ initial, onSave, onClose }: SpoolFormProps) {
           onChange={(e) => set('purchasedAt', (e.target as HTMLInputElement).value)}
         />
       </div>
+      <FormField
+        label="Low-Stock Alert (g)"
+        type="number"
+        min={0}
+        value={form.lowStockThresholdGrams ?? 100}
+        onChange={(e) => set('lowStockThresholdGrams', Number((e.target as HTMLInputElement).value))}
+      />
       <FormField
         as="textarea"
         label="Notes (optional)"
@@ -573,7 +582,7 @@ function AmsMappingSection() {
 
 // ── Spool edit modal with Details / Labels tabs ───────────────────────────────
 
-type SpoolTab = 'details' | 'labels' | 'drying';
+type SpoolTab = 'details' | 'labels' | 'drying' | 'history';
 
 function SpoolEditModal({
   spool,
@@ -589,7 +598,7 @@ function SpoolEditModal({
   return (
     <div>
       <div className="flex gap-5 border-b border-slate-100 mb-4 -mt-1">
-        {(['details', 'labels', 'drying'] as SpoolTab[]).map((t) => (
+        {(['details', 'labels', 'drying', 'history'] as SpoolTab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -617,6 +626,7 @@ function SpoolEditModal({
             purchasedAt: spool.purchasedAt,
             notes: spool.notes ?? '',
             locationId: spool.locationId,
+            lowStockThresholdGrams: spool.lowStockThresholdGrams ?? 100,
           }}
           onSave={onSave}
           onClose={onClose}
@@ -624,6 +634,7 @@ function SpoolEditModal({
       )}
       {tab === 'labels' && <SpoolLabelPanel spool={spool} />}
       {tab === 'drying' && <DryingTab spool={spool} />}
+      {tab === 'history' && <SpoolHistoryTab spool={spool} />}
     </div>
   );
 }

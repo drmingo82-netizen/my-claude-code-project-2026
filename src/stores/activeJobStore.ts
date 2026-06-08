@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import type { ActivePrintJob, UsageHistoryRecord } from '../types';
 import { useFilamentStore } from './filamentStore';
 import { useUsageHistoryStore } from './usageHistoryStore';
+import { useNotificationStore } from './notificationStore';
 
 interface ActiveJobStore {
   activeJobs: Record<string, ActivePrintJob>; // keyed by printerId
@@ -38,6 +39,18 @@ function deductAndLog(job: ActivePrintJob, pct: number): void {
 
     const newRemaining = Math.max(0, Math.round((spool.weightRemainingG - grams) * 10) / 10);
     updateSpool(spoolId, { weightRemainingG: newRemaining });
+
+    // Low-stock alert — fires once per fill, resets when weight rises above threshold
+    const updated = useFilamentStore.getState().spools.find((s) => s.id === spoolId);
+    if (updated) {
+      const threshold = updated.lowStockThresholdGrams ?? 100;
+      if (updated.weightRemainingG <= threshold && !updated.lowStockAlertSent) {
+        updateSpool(spoolId, { lowStockAlertSent: true });
+        useNotificationStore.getState().addToast(
+          `Low stock: ${updated.brand} ${updated.material} ${updated.color} — ${updated.weightRemainingG}g remaining`,
+        );
+      }
+    }
 
     const record: UsageHistoryRecord = {
       id: crypto.randomUUID(),

@@ -1,4 +1,7 @@
+import { useRef } from 'react';
 import type { PrinterEntry } from '../hooks/usePrinterStatus';
+import { useActiveJobStore } from '../stores/activeJobStore';
+import { parse3MF } from '../lib/parse3mf';
 
 function formatRemaining(mins: number | null): string {
   if (mins === null || mins <= 0) return '';
@@ -65,6 +68,27 @@ export default function PrinterWidget({ printer, serverOnline }: Props) {
   const connected = serverOnline && printer.connection === 'connected';
   const p         = printer.printer;
 
+  const activeJob = useActiveJobStore((s) => s.activeJobs[printer.id]);
+  const fileRef   = useRef<HTMLInputElement>(null);
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const result = await parse3MF(file);
+    if (!result || result.filamentPerSlot.length === 0) return;
+    const calculatedGrams: Record<number, number> = {};
+    for (const { slot, grams } of result.filamentPerSlot) {
+      calculatedGrams[slot - 1] = grams; // 1-based → 0-based AMS slot index
+    }
+    useActiveJobStore.getState().setCalculatedGrams(printer.id, calculatedGrams);
+  }
+
+  const hasGrams  = activeJob && Object.keys(activeJob.calculatedGrams).length > 0;
+  const totalGrams = hasGrams
+    ? Object.values(activeJob.calculatedGrams).reduce((a, b) => a + b, 0)
+    : 0;
+
   return (
     <div className="bg-[#1e2a3a] rounded-xl p-4 shadow-sm text-white">
       {/* Header */}
@@ -117,6 +141,32 @@ export default function PrinterWidget({ printer, serverOnline }: Props) {
               {p.bedTempC    !== null && <span>Bed {p.bedTempC.toFixed(0)}°C</span>}
               {p.nozzleTempC !== null && <span>Nozzle {p.nozzleTempC.toFixed(0)}°C</span>}
               {p.wifiSignal && <span className="ml-auto">{p.wifiSignal}</span>}
+            </div>
+          )}
+
+          {/* .3mf upload for per-slot gram estimates */}
+          {hasGrams ? (
+            <div className="text-[10px] text-white/40 pt-0.5">
+              Est. {totalGrams.toFixed(1)}g total
+              {Object.entries(activeJob!.calculatedGrams).map(([slot, g]) => (
+                <span key={slot}> · S{Number(slot) + 1}: {g.toFixed(1)}g</span>
+              ))}
+            </div>
+          ) : (
+            <div className="pt-1">
+              <button
+                onClick={() => fileRef.current?.click()}
+                className="text-[10px] text-white/40 hover:text-white/70 transition-colors underline underline-offset-2"
+              >
+                Upload .3mf for gram estimates
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".3mf"
+                className="hidden"
+                onChange={handleFileUpload}
+              />
             </div>
           )}
         </div>
