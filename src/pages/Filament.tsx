@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useFilamentStore } from '../stores/filamentStore';
 import type { FilamentSpool } from '../types';
 import { usePrinterStatus } from '../hooks/usePrinterStatus';
@@ -17,6 +17,7 @@ import BambuInvoiceImportPanel from '../components/modals/BambuInvoiceImportPane
 import { useLocationStore } from '../stores/locationStore';
 import { useAmsStatus, flattenAmsTrays } from '../hooks/useAmsStatus';
 import { hueDiff, isDark, generateColorFromName } from '../utils/colorUtils';
+import { spoolNfcUrl } from '../utils/scanUtils';
 
 const MATERIAL_CATEGORIES: { group: string; items: string[] }[] = [
   { group: 'PLA', items: [
@@ -538,15 +539,140 @@ function SpoolEditModal({
   );
 }
 
+// ── Write NFC Modal ───────────────────────────────────────────────────────────
+
+function WriteNFCModal({
+  spool,
+  onClose,
+  onMarked,
+}: {
+  spool: FilamentSpool;
+  onClose: () => void;
+  onMarked: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [showInstructions, setShowInstructions] = useState(false);
+  const url = spoolNfcUrl(spool.id);
+
+  async function copyUrl() {
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      // fallback: select text via textarea
+      const el = document.createElement('textarea');
+      el.value = url;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative bg-white w-full rounded-t-2xl p-5 pb-safe-or-6 space-y-4 max-h-[90dvh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-base font-semibold text-[#1e2a3a]">Program NFC Tag</p>
+            <p className="text-xs text-slate-400 mt-0.5">{spool.brand} {spool.material} — {spool.color}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 text-xl p-1">×</button>
+        </div>
+
+        {/* URL display + copy */}
+        <div>
+          <p className="text-xs font-medium text-slate-500 mb-2">Tag URL</p>
+          <div className="flex items-start gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
+            <code className="flex-1 text-[11px] text-slate-600 font-mono break-all leading-relaxed">{url}</code>
+            <button
+              onClick={copyUrl}
+              className={`shrink-0 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                copied ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+              }`}
+            >
+              {copied ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+        </div>
+
+        {/* Open NFC Tools */}
+        <div>
+          <a
+            href={`nfc-tools://write?url=${encodeURIComponent(url)}`}
+            className="flex items-center justify-center gap-2 w-full py-4 rounded-2xl bg-violet-600 text-white font-semibold text-sm active:scale-[0.98]"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/>
+              <path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/>
+              <circle cx="12" cy="12" r="2"/>
+              <path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/>
+              <path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/>
+            </svg>
+            Open NFC Tools to Write
+          </a>
+          <p className="text-center text-xs text-slate-400 mt-2">
+            Don't have NFC Tools?{' '}
+            <a
+              href="https://apps.apple.com/app/nfc-tools/id1252962749"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-violet-600 hover:underline"
+            >
+              Get it on the App Store
+            </a>
+          </p>
+        </div>
+
+        {/* Manual instructions (collapsible) */}
+        <div>
+          <button
+            onClick={() => setShowInstructions(!showInstructions)}
+            className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+          >
+            <span>{showInstructions ? '▾' : '▸'}</span>
+            Manual instructions
+          </button>
+          {showInstructions && (
+            <div className="mt-2 bg-slate-50 rounded-xl p-3 space-y-1.5 text-xs text-slate-600 leading-relaxed">
+              <p>1. Open <strong>NFC Tools</strong> on your iPhone</p>
+              <p>2. Tap <strong>Write</strong> → <strong>Add a record</strong> → <strong>URL / URI</strong></p>
+              <p>3. Paste the URL above and tap <strong>OK</strong></p>
+              <p>4. Tap <strong>Write / X bytes</strong> and hold your phone near the tag</p>
+              <p>5. When successful, tap <strong>Mark as Programmed</strong> below</p>
+            </div>
+          )}
+        </div>
+
+        {/* Mark as programmed */}
+        <button
+          onClick={onMarked}
+          className={`w-full py-4 rounded-2xl font-semibold text-sm active:scale-[0.98] transition-colors ${
+            spool.nfcProgrammed
+              ? 'bg-emerald-50 text-emerald-700 border-2 border-emerald-200'
+              : 'bg-emerald-600 text-white'
+          }`}
+        >
+          {spool.nfcProgrammed ? '✓ Already Marked as Programmed' : 'Mark as Programmed'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Filament() {
   const spools = useFilamentStore((s) => s.spools);
-  const { addSpool, updateSpool, deleteSpool, importSpools } = useFilamentStore();
+  const { addSpool, updateSpool, deleteSpool, importSpools, markNfcProgrammed } = useFilamentStore();
 
+  const [searchParams, setSearchParams] = useSearchParams();
   const [showScanner, setShowScanner] = useState(false);
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
   const [pendingBackup, setPendingBackup] = useState<import('../lib/dataBackup').BackupFile | null>(null);
   const [backupError, setBackupError] = useState('');
   const backupFileRef = useRef<HTMLInputElement>(null);
+  const [nfcSpoolId, setNfcSpoolId] = useState<string | null>(null);
   const [modal, setModal] = useState<'add' | { spool: FilamentSpool } | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [importMode, setImportMode] = useState<'replace' | 'merge'>('replace');
@@ -576,6 +702,15 @@ export default function Filament() {
       setSpoolFilter('all');
     }
   }, [spools, incompleteImportedIds]);
+
+  // Handle ?writeNFC=true param from NFCScannerModal
+  useEffect(() => {
+    if (searchParams.get('writeNFC') === 'true') {
+      setSearchParams({}, { replace: true });
+      showToast('Tap "NFC" on any spool row to write a tag');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function showToast(msg: string) {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -968,6 +1103,18 @@ export default function Filament() {
                           <td className="px-4 py-3 text-slate-400 whitespace-nowrap text-xs">{spool.purchasedAt}</td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
+                              {spool.nfcProgrammed && (
+                                <span title="NFC tag programmed" className="text-emerald-500 flex items-center">
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/>
+                                    <path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/>
+                                    <circle cx="12" cy="12" r="2"/>
+                                    <path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/>
+                                    <path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/>
+                                  </svg>
+                                </span>
+                              )}
+                              <button onClick={() => setNfcSpoolId(spool.id)} className="text-xs text-violet-500 hover:underline">NFC</button>
                               <button onClick={() => setModal({ spool })} className="text-xs text-[#f97316] hover:underline">Edit</button>
                               <button onClick={() => setDeleteId(spool.id)} className="text-xs text-slate-400 hover:text-red-500 transition-colors">Delete</button>
                             </div>
@@ -1028,6 +1175,23 @@ export default function Filament() {
                       <td className="px-4 py-3 text-slate-400 whitespace-nowrap text-xs">{spool.purchasedAt}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
+                          {spool.nfcProgrammed && (
+                            <span title="NFC tag programmed" className="text-emerald-500 flex items-center">
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/>
+                                <path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/>
+                                <circle cx="12" cy="12" r="2"/>
+                                <path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/>
+                                <path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/>
+                              </svg>
+                            </span>
+                          )}
+                          <button
+                            onClick={() => setNfcSpoolId(spool.id)}
+                            className="text-xs text-violet-500 hover:underline"
+                          >
+                            NFC
+                          </button>
                           <button
                             onClick={() => setModal({ spool })}
                             className="text-xs text-[#f97316] hover:underline"
@@ -1098,6 +1262,23 @@ export default function Filament() {
           <p className="mt-3 text-xs text-red-500">{backupError}</p>
         )}
       </div>
+
+      {/* Write NFC modal */}
+      {nfcSpoolId && (() => {
+        const nfcSpool = spools.find((s) => s.id === nfcSpoolId);
+        if (!nfcSpool) return null;
+        return (
+          <WriteNFCModal
+            spool={nfcSpool}
+            onClose={() => setNfcSpoolId(null)}
+            onMarked={() => {
+              markNfcProgrammed(nfcSpoolId);
+              setNfcSpoolId(null);
+              showToast('NFC tag marked as programmed');
+            }}
+          />
+        );
+      })()}
 
       {/* Add/Edit modal */}
       {modal !== null && (

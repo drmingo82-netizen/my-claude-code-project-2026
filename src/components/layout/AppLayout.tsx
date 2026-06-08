@@ -1,4 +1,6 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { useState } from 'react';
+import QRScannerModal from '../scanner/QRScannerModal';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: '📊' },
@@ -33,7 +35,7 @@ function NavItem({ to, label, icon }: { to: string; label: string; icon: string 
   );
 }
 
-function MobileHeader() {
+function MobileHeader({ onScanClick }: { onScanClick: () => void }) {
   const { pathname } = useLocation();
   const current = navItems.find((n) =>
     n.to === '/' ? pathname === '/' : pathname.startsWith(n.to)
@@ -44,7 +46,7 @@ function MobileHeader() {
       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#f97316] text-white text-sm font-bold leading-none shrink-0">
         TC
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <p className="text-[9px] uppercase tracking-widest text-white/40 leading-none mb-0.5">
           Tactile Creations
         </p>
@@ -52,15 +54,24 @@ function MobileHeader() {
           {current?.label ?? 'App'}
         </p>
       </div>
+      <button
+        onClick={onScanClick}
+        aria-label="Scan QR code"
+        className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors text-lg"
+      >
+        📷
+      </button>
     </header>
   );
 }
 
 export default function AppLayout() {
+  const [showScanner, setShowScanner] = useState(false);
+
   return (
     <div className="flex flex-col min-h-dvh lg:flex-row">
       {/* Mobile top header */}
-      <MobileHeader />
+      <MobileHeader onScanClick={() => setShowScanner(true)} />
 
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex flex-col w-56 bg-[#1e2a3a] text-white shrink-0 min-h-screen">
@@ -88,6 +99,15 @@ export default function AppLayout() {
             </NavLink>
           ))}
         </nav>
+        <div className="p-3 border-t border-white/10">
+          <button
+            onClick={() => setShowScanner(true)}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+          >
+            <span className="text-base">📷</span>
+            Scan QR Code
+          </button>
+        </div>
       </aside>
 
       {/* Main content — push down past header on mobile, push up past bottom nav */}
@@ -101,6 +121,9 @@ export default function AppLayout() {
           <NavItem key={item.to} {...item} />
         ))}
       </nav>
+
+      {/* QR scanner modal — fullscreen, renders over everything */}
+      {showScanner && <QRScannerModal onClose={() => setShowScanner(false)} />}
     </div>
   );
 }

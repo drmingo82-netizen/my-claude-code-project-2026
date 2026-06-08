@@ -20,6 +20,8 @@ export interface FilamentSpool {
   purchasedAt: string; // ISO date
   notes?: string;
   locationId?: string;
+  nfcProgrammed?: boolean;
+  nfcProgrammedAt?: string; // ISO date
 }
 
 // ── Hardware registry ─────────────────────────────────────────────────────────

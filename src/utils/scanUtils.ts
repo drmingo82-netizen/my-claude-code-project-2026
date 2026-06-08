@@ -4,6 +4,10 @@ export function spoolQrUrl(spoolId: string): string {
   return `${BASE}/scan?spoolId=${encodeURIComponent(spoolId)}&type=filament`;
 }
 
+export function spoolNfcUrl(spoolId: string): string {
+  return `${BASE}/scan?spoolId=${encodeURIComponent(spoolId)}&type=filament&source=nfc`;
+}
+
 export function productQrUrl(skuId: string): string {
   return `${BASE}/scan?skuId=${encodeURIComponent(skuId)}&type=product`;
 }

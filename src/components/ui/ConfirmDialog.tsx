@@ -2,9 +2,17 @@ interface ConfirmDialogProps {
   message: string;
   onConfirm: () => void;
   onCancel: () => void;
+  confirmLabel?: string;
+  confirmClassName?: string;
 }
 
-export default function ConfirmDialog({ message, onConfirm, onCancel }: ConfirmDialogProps) {
+export default function ConfirmDialog({
+  message,
+  onConfirm,
+  onCancel,
+  confirmLabel = 'Delete',
+  confirmClassName = 'text-sm px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors font-medium',
+}: ConfirmDialogProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onCancel} />
@@ -17,11 +25,8 @@ export default function ConfirmDialog({ message, onConfirm, onCancel }: ConfirmD
           >
             Cancel
           </button>
-          <button
-            onClick={onConfirm}
-            className="text-sm px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors font-medium"
-          >
-            Delete
+          <button onClick={onConfirm} className={confirmClassName}>
+            {confirmLabel}
           </button>
         </div>
       </div>

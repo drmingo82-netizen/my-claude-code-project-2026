@@ -18,6 +18,7 @@ interface FilamentStore {
   clearLocationFromSpools: (locationId: string) => void;
   setAmsMapping: (printerId: string, amsSlot: number, spoolId: string) => void;
   clearAmsMapping: (printerId: string, amsSlot: number) => void;
+  markNfcProgrammed: (id: string) => void;
 }
 
 export const useFilamentStore = create<FilamentStore>()(
@@ -57,6 +58,14 @@ export const useFilamentStore = create<FilamentStore>()(
         set((s) => ({
           amsMappings: s.amsMappings.filter(
             (m) => !(m.printerId === printerId && m.amsSlot === amsSlot)
+          ),
+        })),
+      markNfcProgrammed: (id) =>
+        set((s) => ({
+          spools: s.spools.map((sp) =>
+            sp.id === id
+              ? { ...sp, nfcProgrammed: true, nfcProgrammedAt: new Date().toISOString() }
+              : sp
           ),
         })),
     }),

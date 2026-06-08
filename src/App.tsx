@@ -11,6 +11,7 @@ import BulkLabels from './pages/BulkLabels';
 import Locations from './pages/Locations';
 import Colors from './pages/Colors';
 import Hardware from './pages/Hardware';
+import ScanLanding from './pages/ScanLanding';
 import { useDryingStore } from './stores/dryingStore';
 
 // Runs globally so timers fire notifications even when user navigates away from Drying tab
@@ -44,6 +45,8 @@ export default function App() {
     <BrowserRouter>
       <TimerWatcher />
       <Routes>
+        {/* Scan landing — no nav chrome, opened directly from QR codes on phones */}
+        <Route path="scan" element={<ScanLanding />} />
         <Route element={<AppLayout />}>
           <Route index element={<Dashboard />} />
           <Route path="orders" element={<Orders />} />
