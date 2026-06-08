@@ -14,6 +14,8 @@ import { exportAllData, importAllData, readBackupFile } from '../lib/dataBackup'
 import DryingTab from '../components/filament/DryingTab';
 import PrinterSetupPanel from '../components/filament/PrinterSetupPanel';
 import SpoolHistoryTab from '../components/filament/SpoolHistoryTab';
+import AdjustWeightModal from '../components/filament/AdjustWeightModal';
+import { useUsageHistoryStore } from '../stores/usageHistoryStore';
 import FilamentImportPanel, { type ImportableSpool } from '../components/modals/FilamentImportPanel';
 import BambuInvoiceImportPanel from '../components/modals/BambuInvoiceImportPanel';
 import { useLocationStore } from '../stores/locationStore';
@@ -782,6 +784,8 @@ export default function Filament() {
   const [nfcSpoolId, setNfcSpoolId] = useState<string | null>(null);
   const [modal, setModal] = useState<'add' | { spool: FilamentSpool } | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [adjustSpoolId, setAdjustSpoolId] = useState<string | null>(null);
+  const addHistoryRecord = useUsageHistoryStore((s) => s.addRecord);
   const [importMode, setImportMode] = useState<'replace' | 'merge'>('replace');
   const [importError, setImportError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
@@ -823,6 +827,26 @@ export default function Filament() {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast(msg);
     toastTimerRef.current = setTimeout(() => setToast(''), 4000);
+  }
+
+  function handleAdjustSave(spoolId: string, newWeightG: number, note: string) {
+    const spool = spools.find((s) => s.id === spoolId);
+    if (!spool) return;
+    const gramsUsed = spool.weightRemainingG - newWeightG;
+    updateSpool(spoolId, { weightRemainingG: newWeightG });
+    addHistoryRecord({
+      id: crypto.randomUUID(),
+      jobId: 'manual',
+      spoolId,
+      printerId: 'manual',
+      amsSlot: -1,
+      gramsUsed,
+      deductionType: 'manual',
+      completedAt: new Date().toISOString(),
+      gcodeFile: note || 'Manual adjustment',
+    });
+    setAdjustSpoolId(null);
+    showToast(`Weight updated to ${newWeightG}g`);
   }
 
   function handleCsvImport(rows: ImportableSpool[]) {
@@ -1223,6 +1247,7 @@ export default function Filament() {
                               )}
                               <button onClick={() => setNfcSpoolId(spool.id)} className="text-xs text-violet-500 hover:underline">NFC</button>
                               <button onClick={() => setModal({ spool })} className="text-xs text-[#f97316] hover:underline">Edit</button>
+                              <button onClick={() => setAdjustSpoolId(spool.id)} className="text-xs text-sky-500 hover:underline">Adjust</button>
                               <button onClick={() => setDeleteId(spool.id)} className="text-xs text-slate-400 hover:text-red-500 transition-colors">Delete</button>
                             </div>
                           </td>
@@ -1304,6 +1329,12 @@ export default function Filament() {
                             className="text-xs text-[#f97316] hover:underline"
                           >
                             Edit
+                          </button>
+                          <button
+                            onClick={() => setAdjustSpoolId(spool.id)}
+                            className="text-xs text-sky-500 hover:underline"
+                          >
+                            Adjust
                           </button>
                           <button
                             onClick={() => setDeleteId(spool.id)}
@@ -1424,6 +1455,19 @@ export default function Filament() {
           onCancel={() => setDeleteId(null)}
         />
       )}
+
+      {/* Adjust weight modal */}
+      {adjustSpoolId && (() => {
+        const adjustSpool = spools.find((s) => s.id === adjustSpoolId);
+        if (!adjustSpool) return null;
+        return (
+          <AdjustWeightModal
+            spool={adjustSpool}
+            onSave={(newWeightG, note) => handleAdjustSave(adjustSpoolId, newWeightG, note)}
+            onClose={() => setAdjustSpoolId(null)}
+          />
+        );
+      })()}
 
       {/* Restore confirm */}
       {showRestoreConfirm && pendingBackup && (

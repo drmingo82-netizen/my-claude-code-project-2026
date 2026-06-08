@@ -12,13 +12,15 @@ import { useFilamentStore } from '../stores/filamentStore';
 import { useProductStore } from '../stores/productStore';
 import { useSalesStore } from '../stores/salesStore';
 import { useLocationStore } from '../stores/locationStore';
-import { computeKPIs, monthlyRevenueChart, topProducts } from '../lib/metrics';
+import { computeKPIs, monthlyRevenueChart, topProducts, filamentCostPerG } from '../lib/metrics';
+import { useUsageHistoryStore } from '../stores/usageHistoryStore';
+import { useActiveJobStore } from '../stores/activeJobStore';
 import { demoSpools, demoProducts, demoSales } from '../lib/demoData';
 import PrinterWidget from '../components/PrinterWidget';
 import JobCompleteModal from '../components/JobCompleteModal';
 import { usePrinterStatus } from '../hooks/usePrinterStatus';
 import type { CompletedJob, PrinterEntry } from '../hooks/usePrinterStatus';
-import type { LocationType } from '../types';
+import type { LocationType, ActivePrintJob } from '../types';
 
 const TYPE_ICONS: Record<LocationType, string> = {
   AMS: '🖨️', Shelf: '📚', Drawer: '🗄️', Dryer: '🌡️', Box: '📦', Other: '📍',
@@ -33,6 +35,9 @@ const fmt = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 
 const pct = (n: number) => `${n.toFixed(1)}%`;
+
+const fmt2 = (n: number) =>
+  n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
 
 interface KpiCardProps {
   label: string;
@@ -53,6 +58,53 @@ function KpiCard({ label, value, sub, accent }: KpiCardProps) {
         {value}
       </p>
       {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
+    </div>
+  );
+}
+
+function ActivePrintCard({ jobs, printers }: { jobs: ActivePrintJob[]; printers: PrinterEntry[] }) {
+  if (jobs.length === 0) {
+    return (
+      <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
+        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Active Print</p>
+        <p className="text-2xl font-bold text-slate-200 leading-none mt-1">—</p>
+        <p className="text-xs text-slate-300 mt-1">No active prints</p>
+      </div>
+    );
+  }
+
+  const job = jobs[0];
+  const printer = printers.find((p) => p.id === job.printerId);
+  const printerName = printer?.name ?? job.printerId.toUpperCase();
+  const fileName = job.gcodeFile.split('/').pop() ?? job.gcodeFile;
+  const totalGrams = Object.values(job.calculatedGrams).reduce((a, b) => a + b, 0);
+  const usedGrams = totalGrams > 0 ? (totalGrams * job.lastProgressPct) / 100 : null;
+
+  return (
+    <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
+      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Active Print</p>
+      <div className="flex items-center gap-1.5 mb-0.5">
+        <span className="w-1.5 h-1.5 rounded-full bg-[#f97316] animate-pulse shrink-0" />
+        <p className="text-sm font-bold text-[#1e2a3a] leading-none truncate">{printerName}</p>
+      </div>
+      <p className="text-xs text-slate-400 truncate mb-2">{fileName}</p>
+      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden mb-1">
+        <div
+          className="h-full bg-[#f97316] rounded-full transition-all"
+          style={{ width: `${job.lastProgressPct}%` }}
+        />
+      </div>
+      <div className="flex justify-between text-[10px] text-slate-400">
+        <span className="font-semibold text-[#f97316]">{job.lastProgressPct}%</span>
+        {usedGrams !== null
+          ? <span>{usedGrams.toFixed(1)}g / {totalGrams.toFixed(1)}g</span>
+          : <span>Upload .3mf for estimates</span>}
+      </div>
+      {jobs.length > 1 && (
+        <p className="text-[10px] text-slate-300 mt-1">
+          +{jobs.length - 1} more printer{jobs.length > 2 ? 's' : ''}
+        </p>
+      )}
     </div>
   );
 }
@@ -152,6 +204,23 @@ export default function Dashboard() {
   const chartData = monthlyRevenueChart(sales, products, spools, 6);
   const topProds = topProducts(sales, products, spools, 5);
 
+  const historyRecords = useUsageHistoryStore((s) => s.records);
+  const activeJobsMap = useActiveJobStore((s) => s.activeJobs);
+  const runningJobs = Object.values(activeJobsMap).filter((j) => j.status === 'running');
+
+  const todayStr = new Date().toDateString();
+  const todayRecords = historyRecords.filter(
+    (r) => new Date(r.completedAt).toDateString() === todayStr,
+  );
+  const filamentUsedTodayG = todayRecords.reduce(
+    (sum, r) => sum + Math.max(0, r.gramsUsed), 0,
+  );
+  const filamentCostToday = todayRecords.reduce((sum, r) => {
+    if (r.gramsUsed <= 0) return sum;
+    const spool = spools.find((s) => s.id === r.spoolId);
+    return sum + (spool ? filamentCostPerG(spool) * r.gramsUsed : 0);
+  }, 0);
+
   return (
     <div className="p-4 max-w-5xl mx-auto">
       {/* Header */}
@@ -199,6 +268,27 @@ export default function Dashboard() {
           />
         </div>
       )}
+
+      {/* Filament KPIs — always visible */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <KpiCard
+          label="Filament Used Today"
+          value={`${filamentUsedTodayG.toFixed(1)}g`}
+          sub="grams deducted today"
+        />
+        <KpiCard
+          label="Filament Cost Today"
+          value={fmt2(filamentCostToday)}
+          sub="material cost today"
+        />
+        <KpiCard
+          label="Low Stock"
+          value={kpis.lowSpools.length.toString()}
+          sub={kpis.lowSpools.length > 0 ? 'spools below threshold' : 'all spools healthy'}
+          accent={kpis.lowSpools.length > 0}
+        />
+        <ActivePrintCard jobs={runningJobs} printers={printers} />
+      </div>
 
       {!hasData ? (
         <EmptyState onLoad={loadDemo} />
