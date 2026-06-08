@@ -551,23 +551,34 @@ function WriteNFCModal({
   onMarked: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [nfcReady, setNfcReady] = useState(false);
   const [showInstructions, setShowInstructions] = useState(false);
   const url = spoolNfcUrl(spool.id);
 
-  async function copyUrl() {
+  async function writeToClipboard(text: string) {
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(text);
     } catch {
-      // fallback: select text via textarea
       const el = document.createElement('textarea');
-      el.value = url;
+      el.value = text;
       document.body.appendChild(el);
       el.select();
       document.execCommand('copy');
       document.body.removeChild(el);
     }
+  }
+
+  async function copyUrl() {
+    await writeToClipboard(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function openNfcTools() {
+    await writeToClipboard(url);
+    setNfcReady(true);
+    // NFC Tools for iOS has no URL scheme — copy to clipboard then open App Store
+    window.open('https://apps.apple.com/app/nfc-tools/id1252962749', '_blank');
   }
 
   return (
@@ -598,10 +609,10 @@ function WriteNFCModal({
           </div>
         </div>
 
-        {/* Open NFC Tools */}
-        <div>
-          <a
-            href={`nfc-tools://write?url=${encodeURIComponent(url)}`}
+        {/* Copy + Open NFC Tools */}
+        <div className="space-y-2">
+          <button
+            onClick={openNfcTools}
             className="flex items-center justify-center gap-2 w-full py-4 rounded-2xl bg-violet-600 text-white font-semibold text-sm active:scale-[0.98]"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -611,19 +622,15 @@ function WriteNFCModal({
               <path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/>
               <path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/>
             </svg>
-            Open NFC Tools to Write
-          </a>
-          <p className="text-center text-xs text-slate-400 mt-2">
-            Don't have NFC Tools?{' '}
-            <a
-              href="https://apps.apple.com/app/nfc-tools/id1252962749"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-violet-600 hover:underline"
-            >
-              Get it on the App Store
-            </a>
-          </p>
+            Copy URL &amp; Open NFC Tools
+          </button>
+
+          {nfcReady && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-xs text-emerald-800 leading-relaxed">
+              <p className="font-semibold mb-1">URL copied to clipboard</p>
+              <p>In NFC Tools: <strong>Write</strong> → <strong>Add a record</strong> → <strong>URL / URI</strong> → paste → <strong>OK</strong> → tap Write and hold near tag</p>
+            </div>
+          )}
         </div>
 
         {/* Manual instructions (collapsible) */}
@@ -637,11 +644,11 @@ function WriteNFCModal({
           </button>
           {showInstructions && (
             <div className="mt-2 bg-slate-50 rounded-xl p-3 space-y-1.5 text-xs text-slate-600 leading-relaxed">
-              <p>1. Open <strong>NFC Tools</strong> on your iPhone</p>
-              <p>2. Tap <strong>Write</strong> → <strong>Add a record</strong> → <strong>URL / URI</strong></p>
-              <p>3. Paste the URL above and tap <strong>OK</strong></p>
+              <p>1. Tap <strong>Copy URL &amp; Open NFC Tools</strong> above</p>
+              <p>2. In NFC Tools tap <strong>Write</strong> → <strong>Add a record</strong> → <strong>URL / URI</strong></p>
+              <p>3. Paste the URL and tap <strong>OK</strong></p>
               <p>4. Tap <strong>Write / X bytes</strong> and hold your phone near the tag</p>
-              <p>5. When successful, tap <strong>Mark as Programmed</strong> below</p>
+              <p>5. When successful, come back here and tap <strong>Mark as Programmed</strong></p>
             </div>
           )}
         </div>
