@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useSKUStore } from '../stores/skuStore';
+import { useNotificationStore } from '../stores/notificationStore';
 import type { SKUItem, SKUCategory, SKUStatus } from '../types';
 import { exportToCsv } from '../lib/csv';
 import Modal from '../components/ui/Modal';
@@ -14,16 +15,148 @@ const fmtC = (n: number) =>
 
 function statusBadge(status: SKUStatus) {
   switch (status) {
-    case 'Active':
-      return 'bg-emerald-100 text-emerald-700';
-    case 'In Development':
-      return 'bg-amber-100 text-amber-700';
-    case 'Inactive':
-      return 'bg-slate-100 text-slate-500';
+    case 'Active':       return 'bg-emerald-100 text-emerald-700';
+    case 'In Development': return 'bg-amber-100 text-amber-700';
+    case 'Inactive':     return 'bg-slate-100 text-slate-500';
   }
 }
 
-// ── Form ──────────────────────────────────────────────────────────────────────
+// ── Bulk pricing logic ────────────────────────────────────────────────────────
+
+function computeBulkPrice(item: SKUItem): number | undefined {
+  const n = item.name.toLowerCase();
+  switch (item.category) {
+    case 'Animal':
+      if (n.includes('tiny'))   return 1.50;
+      if (n.includes('small'))  return 1.50;
+      if (n.includes('medium')) return 2.50;
+      if (n.includes('large'))  return 5.00;
+      return undefined;
+    case 'Fidget':
+      if (n.includes('extra large')) return 15.00;
+      if (n.includes('large'))       return 10.00;
+      if (n.includes('small'))       return 5.00;
+      if (n.includes('medium'))      return 7.00;
+      return 7.00;
+    case 'Keychain':      return 10.00;
+    case 'Organizational': return 15.00;
+    case 'Novelty':       return 7.00;
+  }
+}
+
+interface BulkPreviewRow {
+  id: string;
+  sku: string;
+  name: string;
+  category: SKUCategory;
+  price: number;
+}
+
+function buildBulkPreview(skus: SKUItem[]): BulkPreviewRow[] {
+  return skus
+    .filter((s) => s.salePrice === undefined || s.salePrice === null)
+    .flatMap((s) => {
+      const price = computeBulkPrice(s);
+      return price !== undefined ? [{ id: s.id, sku: s.sku, name: s.name, category: s.category, price }] : [];
+    });
+}
+
+// ── Bulk Price modal ──────────────────────────────────────────────────────────
+
+interface BulkPriceModalProps {
+  skus: SKUItem[];
+  onApply: (rows: BulkPreviewRow[]) => void;
+  onClose: () => void;
+}
+
+function BulkPriceModal({ skus, onApply, onClose }: BulkPriceModalProps) {
+  const preview = useMemo(() => buildBulkPreview(skus), [skus]);
+
+  const byCategory = useMemo(() => {
+    const map = new Map<SKUCategory, BulkPreviewRow[]>();
+    for (const row of preview) {
+      const arr = map.get(row.category) ?? [];
+      arr.push(row);
+      map.set(row.category, arr);
+    }
+    return map;
+  }, [preview]);
+
+  if (preview.length === 0) {
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-col items-center justify-center py-10 text-center">
+          <div className="text-3xl mb-3">✅</div>
+          <p className="text-sm font-medium text-slate-700">All SKUs already have prices set.</p>
+          <p className="text-xs text-slate-400 mt-1">Nothing to update.</p>
+        </div>
+        <button
+          onClick={onClose}
+          className="w-full py-2.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors"
+        >
+          Close
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-slate-500">
+        The following <span className="font-semibold text-[#1e2a3a]">{preview.length} SKU{preview.length !== 1 ? 's' : ''}</span> have
+        no sale price and will be updated. SKUs with prices already set are skipped.
+      </p>
+
+      <div className="border border-slate-100 rounded-xl overflow-hidden max-h-[52vh] overflow-y-auto">
+        {CATEGORIES.filter((cat) => byCategory.has(cat)).map((cat) => {
+          const rows = byCategory.get(cat)!;
+          return (
+            <div key={cat}>
+              <div className="bg-slate-50 px-4 py-2 border-b border-slate-100 sticky top-0">
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  {cat} — {rows.length} SKU{rows.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <table className="w-full text-xs">
+                <tbody>
+                  {rows.map((row, i) => (
+                    <tr
+                      key={row.id}
+                      className={`border-b border-slate-50 last:border-0 ${i % 2 === 0 ? '' : 'bg-slate-50/40'}`}
+                    >
+                      <td className="px-4 py-2 font-mono text-slate-400 whitespace-nowrap w-20">{row.sku}</td>
+                      <td className="px-4 py-2 text-slate-700">{row.name}</td>
+                      <td className="px-4 py-2 text-right font-semibold text-emerald-600 whitespace-nowrap">
+                        {fmtC(row.price)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="flex gap-3 pt-1">
+        <button
+          onClick={onClose}
+          className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={() => onApply(preview)}
+          className="flex-1 py-2.5 rounded-lg bg-[#f97316] text-white text-sm font-medium hover:bg-[#ea6d0f] transition-colors"
+        >
+          Apply Prices
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── SKU form ──────────────────────────────────────────────────────────────────
 
 type FormData = Omit<SKUItem, 'id'>;
 
@@ -258,12 +391,7 @@ interface DetailPanelProps {
 function DetailPanel({ item, onEdit, onDelete, onClose }: DetailPanelProps) {
   return (
     <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm"
-        onClick={onClose}
-      />
-      {/* Slide-over panel */}
+      <div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm" onClick={onClose} />
       <div className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-sm bg-white shadow-2xl flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
           <div>
@@ -280,7 +408,6 @@ function DetailPanel({ item, onEdit, onDelete, onClose }: DetailPanelProps) {
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {/* Status + category */}
           <div className="flex items-center gap-2 flex-wrap">
             <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${statusBadge(item.status)}`}>
               {item.status}
@@ -290,7 +417,6 @@ function DetailPanel({ item, onEdit, onDelete, onClose }: DetailPanelProps) {
             </span>
           </div>
 
-          {/* Core fields */}
           <div className="bg-slate-50 rounded-xl p-3">
             <DetailRow label="Quantity" value={item.quantity} />
             <DetailRow label="Sale Price" value={item.salePrice !== undefined ? fmtC(item.salePrice) : undefined} />
@@ -301,18 +427,9 @@ function DetailPanel({ item, onEdit, onDelete, onClose }: DetailPanelProps) {
                 value={`${(((item.salePrice - item.filamentCost) / item.salePrice) * 100).toFixed(1)}%`}
               />
             ) : null}
-            <DetailRow
-              label="Print Time"
-              value={item.printTimeMinutes !== undefined ? `${item.printTimeMinutes} min` : undefined}
-            />
-            <DetailRow
-              label="Weight"
-              value={item.weightGrams !== undefined ? `${item.weightGrams} g` : undefined}
-            />
-            <DetailRow
-              label="AMS Slots"
-              value={item.amsSlots !== undefined ? item.amsSlots : undefined}
-            />
+            <DetailRow label="Print Time" value={item.printTimeMinutes !== undefined ? `${item.printTimeMinutes} min` : undefined} />
+            <DetailRow label="Weight" value={item.weightGrams !== undefined ? `${item.weightGrams} g` : undefined} />
+            <DetailRow label="AMS Slots" value={item.amsSlots !== undefined ? item.amsSlots : undefined} />
           </div>
 
           {item.notes && (
@@ -347,8 +464,10 @@ function DetailPanel({ item, onEdit, onDelete, onClose }: DetailPanelProps) {
 export default function SKUCatalog() {
   const skus = useSKUStore((s) => s.skus);
   const { addSKU, updateSKU, deleteSKU } = useSKUStore();
+  const addToast = useNotificationStore((s) => s.addToast);
 
   const [modal, setModal] = useState<'add' | { item: SKUItem } | null>(null);
+  const [showBulkPrice, setShowBulkPrice] = useState(false);
   const [detail, setDetail] = useState<SKUItem | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -379,6 +498,14 @@ export default function SKUCatalog() {
       }
     }
     setModal(null);
+  }
+
+  function handleBulkApply(rows: BulkPreviewRow[]) {
+    for (const row of rows) {
+      updateSKU(row.id, { salePrice: row.price });
+    }
+    setShowBulkPrice(false);
+    addToast(`✅ Updated prices for ${rows.length} SKU${rows.length !== 1 ? 's' : ''}`);
   }
 
   function handleDeleteConfirm() {
@@ -424,6 +551,13 @@ export default function SKUCatalog() {
             className="text-xs px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-40"
           >
             ↓ Export CSV
+          </button>
+          <button
+            onClick={() => setShowBulkPrice(true)}
+            disabled={skus.length === 0}
+            className="text-xs px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-40"
+          >
+            Bulk Price
           </button>
           <button
             onClick={() => setModal('add')}
@@ -511,10 +645,7 @@ export default function SKUCatalog() {
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
                   {['SKU', 'Name', 'Category', 'Qty', 'Sale Price', 'Status', ''].map((h) => (
-                    <th
-                      key={h}
-                      className="text-left text-xs font-semibold text-slate-500 px-4 py-3 whitespace-nowrap"
-                    >
+                    <th key={h} className="text-left text-xs font-semibold text-slate-500 px-4 py-3 whitespace-nowrap">
                       {h}
                     </th>
                   ))}
@@ -527,9 +658,7 @@ export default function SKUCatalog() {
                     onClick={() => setDetail(item)}
                     className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60 transition-colors cursor-pointer"
                   >
-                    <td className="px-4 py-3 font-mono text-xs text-slate-400 whitespace-nowrap">
-                      {item.sku}
-                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-slate-400 whitespace-nowrap">{item.sku}</td>
                     <td className="px-4 py-3 font-medium text-slate-800 max-w-[200px]">
                       <span className="truncate block">{item.name}</span>
                       {item.notes && (
@@ -541,25 +670,18 @@ export default function SKUCatalog() {
                         {item.category}
                       </span>
                     </td>
-                    <td className="px-4 py-3 font-semibold text-slate-700 whitespace-nowrap">
-                      {item.quantity}
-                    </td>
+                    <td className="px-4 py-3 font-semibold text-slate-700 whitespace-nowrap">{item.quantity}</td>
                     <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
                       {item.salePrice !== undefined ? fmtC(item.salePrice) : <span className="text-slate-300">—</span>}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <span
-                        className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${statusBadge(item.status)}`}
-                      >
+                      <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${statusBadge(item.status)}`}>
                         {item.status}
                       </span>
                     </td>
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => setModal({ item })}
-                          className="text-xs text-[#f97316] hover:underline"
-                        >
+                        <button onClick={() => setModal({ item })} className="text-xs text-[#f97316] hover:underline">
                           Edit
                         </button>
                         <button
@@ -583,6 +705,17 @@ export default function SKUCatalog() {
         </div>
       )}
 
+      {/* Bulk Price modal */}
+      {showBulkPrice && (
+        <Modal title="Bulk Price by Category" onClose={() => setShowBulkPrice(false)}>
+          <BulkPriceModal
+            skus={skus}
+            onApply={handleBulkApply}
+            onClose={() => setShowBulkPrice(false)}
+          />
+        </Modal>
+      )}
+
       {/* Add / Edit modal */}
       {modal !== null && (
         <Modal
@@ -602,14 +735,8 @@ export default function SKUCatalog() {
         <DetailPanel
           item={detail}
           onClose={() => setDetail(null)}
-          onEdit={() => {
-            setModal({ item: detail });
-            setDetail(null);
-          }}
-          onDelete={() => {
-            setDeleteId(detail.id);
-            setDetail(null);
-          }}
+          onEdit={() => { setModal({ item: detail }); setDetail(null); }}
+          onDelete={() => { setDeleteId(detail.id); setDetail(null); }}
         />
       )}
 
