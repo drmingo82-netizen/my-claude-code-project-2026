@@ -38,64 +38,75 @@ function readJson(req) {
 // ── HTTP request handler ──────────────────────────────────────────────────────
 
 const server = http.createServer(async (req, res) => {
-  const origin = req.headers.origin || '';
-  const headers = corsHeaders(origin);
+  const { method, url } = req;
+  console.log(`${method} ${url}`);
 
-  // CORS preflight
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204, headers);
+  const origin = req.headers.origin || '';
+  const hdrs = corsHeaders(origin);
+
+  // OPTIONS must be handled synchronously — before any async code — so a
+  // failed downstream call on a different request can never block or crash
+  // the preflight response.
+  if (method === 'OPTIONS') {
+    res.writeHead(204, hdrs);
     res.end();
     return;
   }
 
-  // Health check
-  if (req.url === '/' || req.url === '') {
-    res.writeHead(200, { ...headers, 'Content-Type': 'text/plain' });
-    res.end('Tactile Creations MQTT Proxy — OK\n');
-    return;
-  }
-
-  // POST /login — proxies Bambu auth to avoid browser CORS restrictions
-  if (req.url === '/login' && req.method === 'POST') {
-    let body;
-    try {
-      body = await readJson(req);
-    } catch {
-      res.writeHead(400, { ...headers, 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+  // Wrap all async paths in a single top-level try/catch.  Without this,
+  // an unhandled rejection from fetch() or readJson() would crash the Node
+  // process (Node ≥15 default behaviour), making Railway return 502 for
+  // every subsequent request — including the next OPTIONS preflight.
+  try {
+    // Health check
+    if (url === '/' || url === '') {
+      res.writeHead(200, { ...hdrs, 'Content-Type': 'text/plain' });
+      res.end('Tactile Creations MQTT Proxy — OK\n');
       return;
     }
 
-    const { email, password, code } = body;
-    if (!email) {
-      res.writeHead(400, { ...headers, 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'email required' }));
-      return;
-    }
+    // POST /login — proxies Bambu auth to avoid browser CORS restrictions
+    if (url === '/login' && method === 'POST') {
+      let body;
+      try {
+        body = await readJson(req);
+      } catch {
+        res.writeHead(400, { ...hdrs, 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+        return;
+      }
 
-    const bambuBody = { account: email, apiError: '' };
-    if (password) bambuBody.password = password;
-    if (code)     bambuBody.code = code;
+      const { email, password, code } = body;
+      if (!email) {
+        res.writeHead(400, { ...hdrs, 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'email required' }));
+        return;
+      }
 
-    try {
+      const bambuBody = { account: email, apiError: '' };
+      if (password) bambuBody.password = password;
+      if (code)     bambuBody.code = code;
+
       const upstream = await fetch(BAMBU_LOGIN_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(bambuBody),
       });
       const data = await upstream.json();
-      res.writeHead(upstream.status, { ...headers, 'Content-Type': 'application/json' });
+      res.writeHead(upstream.status, { ...hdrs, 'Content-Type': 'application/json' });
       res.end(JSON.stringify(data));
-    } catch (err) {
-      console.error('Bambu login proxy error:', err.message);
-      res.writeHead(502, { ...headers, 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Failed to reach Bambu API' }));
+      return;
     }
-    return;
-  }
 
-  res.writeHead(404, { ...headers, 'Content-Type': 'text/plain' });
-  res.end('Not found\n');
+    res.writeHead(404, { ...hdrs, 'Content-Type': 'text/plain' });
+    res.end('Not found\n');
+  } catch (err) {
+    console.error(`Error handling ${method} ${url}:`, err.message);
+    if (!res.headersSent) {
+      res.writeHead(500, { ...hdrs, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Internal server error' }));
+    }
+  }
 });
 
 const wss = new WebSocketServer({ server });
