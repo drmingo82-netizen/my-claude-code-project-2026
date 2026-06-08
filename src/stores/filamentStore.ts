@@ -3,9 +3,10 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import type { FilamentSpool } from '../types';
 
 export interface AmsMapping {
-  printerId: string; // which printer this slot belongs to
-  amsSlot: number;   // 0-3 for AMS trays
-  spoolId: string;   // id from FilamentSpool
+  printerId: string;    // which printer this slot belongs to
+  amsSlot: number;      // 0-3 for AMS trays
+  spoolId: string;      // id from FilamentSpool
+  assignedAt?: string;  // ISO timestamp — set when assignment is saved
 }
 
 interface FilamentStore {
@@ -52,7 +53,11 @@ export const useFilamentStore = create<FilamentStore>()(
           const rest = s.amsMappings.filter(
             (m) => !(m.printerId === printerId && m.amsSlot === amsSlot)
           );
-          return { amsMappings: spoolId ? [...rest, { printerId, amsSlot, spoolId }] : rest };
+          return {
+            amsMappings: spoolId
+              ? [...rest, { printerId, amsSlot, spoolId, assignedAt: new Date().toISOString() }]
+              : rest,
+          };
         }),
       clearAmsMapping: (printerId, amsSlot) =>
         set((s) => ({

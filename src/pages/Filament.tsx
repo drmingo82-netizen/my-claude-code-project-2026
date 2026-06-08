@@ -12,6 +12,7 @@ import SpoolLabelPanel from '../components/labels/SpoolLabelPanel';
 import QRScannerModal from '../components/scanner/QRScannerModal';
 import { exportAllData, importAllData, readBackupFile } from '../lib/dataBackup';
 import DryingTab from '../components/filament/DryingTab';
+import PrinterSetupPanel from '../components/filament/PrinterSetupPanel';
 import FilamentImportPanel, { type ImportableSpool } from '../components/modals/FilamentImportPanel';
 import BambuInvoiceImportPanel from '../components/modals/BambuInvoiceImportPanel';
 import { useLocationStore } from '../stores/locationStore';
@@ -1310,7 +1311,10 @@ export default function Filament() {
         </div>
       )}
 
-      {/* AMS slot mapping */}
+      {/* Printer Setup — manual AMS spool assignment */}
+      <PrinterSetupPanel />
+
+      {/* AMS slot mapping — live MQTT view with auto-match */}
       <AmsMappingSection />
 
       {/* Data & Backup */}
