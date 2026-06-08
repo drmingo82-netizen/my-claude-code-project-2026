@@ -1,8 +1,14 @@
 import { useState } from 'react';
 import { useSettingsStore } from '../stores/settingsStore';
 
-const BAMBU_LOGIN_URL = 'https://api.bambulab.com/v1/user-service/user/login';
 const TOKEN_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
+
+function proxyLoginUrl(wssUrl: string): string {
+  return wssUrl
+    .replace(/^wss:\/\//, 'https://')
+    .replace(/^ws:\/\//, 'http://')
+    .replace(/\/$/, '') + '/login';
+}
 
 function fmtExpiry(isoDate: string): string {
   if (!isoDate) return '';
@@ -64,12 +70,16 @@ function BambuCloudSection() {
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    if (!proxyUrl) {
+      setError('Save your proxy URL below before connecting.');
+      return;
+    }
     setLoading(true);
     try {
-      const body: Record<string, string> = { account: email, password, apiError: '' };
+      const body: Record<string, string> = { email, password };
       if (showTfa && tfaCode) body.code = tfaCode;
 
-      const res = await fetch(BAMBU_LOGIN_URL, {
+      const res = await fetch(proxyLoginUrl(proxyUrl), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

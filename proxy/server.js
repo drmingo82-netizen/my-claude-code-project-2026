@@ -10,9 +10,92 @@ const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
   : [];
 
-const server = http.createServer((_req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Tactile Creations MQTT Proxy — OK\n');
+const BAMBU_LOGIN_URL = 'https://api.bambulab.com/v1/user-service/user/login';
+
+// ── CORS helpers ──────────────────────────────────────────────────────────────
+
+function corsHeaders(origin) {
+  const allow = ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.includes(origin);
+  return {
+    'Access-Control-Allow-Origin':  allow ? (ALLOWED_ORIGINS.length === 0 ? '*' : origin) : '',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
+}
+
+function readJson(req) {
+  return new Promise((resolve, reject) => {
+    let raw = '';
+    req.on('data', (chunk) => { raw += chunk; });
+    req.on('end', () => {
+      try { resolve(JSON.parse(raw || '{}')); }
+      catch { reject(new Error('Invalid JSON')); }
+    });
+    req.on('error', reject);
+  });
+}
+
+// ── HTTP request handler ──────────────────────────────────────────────────────
+
+const server = http.createServer(async (req, res) => {
+  const origin = req.headers.origin || '';
+  const headers = corsHeaders(origin);
+
+  // CORS preflight
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, headers);
+    res.end();
+    return;
+  }
+
+  // Health check
+  if (req.url === '/' || req.url === '') {
+    res.writeHead(200, { ...headers, 'Content-Type': 'text/plain' });
+    res.end('Tactile Creations MQTT Proxy — OK\n');
+    return;
+  }
+
+  // POST /login — proxies Bambu auth to avoid browser CORS restrictions
+  if (req.url === '/login' && req.method === 'POST') {
+    let body;
+    try {
+      body = await readJson(req);
+    } catch {
+      res.writeHead(400, { ...headers, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+      return;
+    }
+
+    const { email, password, code } = body;
+    if (!email) {
+      res.writeHead(400, { ...headers, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'email required' }));
+      return;
+    }
+
+    const bambuBody = { account: email, apiError: '' };
+    if (password) bambuBody.password = password;
+    if (code)     bambuBody.code = code;
+
+    try {
+      const upstream = await fetch(BAMBU_LOGIN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bambuBody),
+      });
+      const data = await upstream.json();
+      res.writeHead(upstream.status, { ...headers, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(data));
+    } catch (err) {
+      console.error('Bambu login proxy error:', err.message);
+      res.writeHead(502, { ...headers, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to reach Bambu API' }));
+    }
+    return;
+  }
+
+  res.writeHead(404, { ...headers, 'Content-Type': 'text/plain' });
+  res.end('Not found\n');
 });
 
 const wss = new WebSocketServer({ server });
