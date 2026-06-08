@@ -1,0 +1,16 @@
+{
+  "name": "tactile-mqtt-proxy",
+  "version": "1.0.0",
+  "description": "WebSocket-to-MQTT bridge for Bambu Lab cloud connection",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "mqtt": "^5.10.1",
+    "ws": "^8.18.0"
+  }
+}

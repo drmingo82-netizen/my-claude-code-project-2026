@@ -11,6 +11,7 @@ import BulkLabels from './pages/BulkLabels';
 import Locations from './pages/Locations';
 import Colors from './pages/Colors';
 import Hardware from './pages/Hardware';
+import Settings from './pages/Settings';
 import ScanLanding from './pages/ScanLanding';
 import FilamentDebug from './pages/FilamentDebug';
 import { useDryingStore } from './stores/dryingStore';
@@ -71,6 +72,7 @@ export default function App() {
           <Route path="locations" element={<Locations />} />
           <Route path="colors" element={<Colors />} />
           <Route path="hardware" element={<Hardware />} />
+          <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
     </BrowserRouter>

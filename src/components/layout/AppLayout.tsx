@@ -12,6 +12,7 @@ const navItems = [
   { to: '/products', label: 'Products', icon: '🖨️' },
   { to: '/sales', label: 'Sales', icon: '💰' },
   { to: '/calculator', label: 'Calculator', icon: '🧮' },
+  { to: '/settings',  label: 'Settings',   icon: '⚙️' },
 ];
 
 function NavItem({ to, label, icon }: { to: string; label: string; icon: string }) {
