@@ -18,6 +18,8 @@ interface SettingsStore {
   }) => void;
   clearBambuCredentials: () => void;
   setProxyUrl: (url: string) => void;
+  setAccessToken: (token: string) => void;
+  setUserId: (id: string) => void;
 }
 
 export const useSettingsStore = create<SettingsStore>()(
@@ -37,6 +39,8 @@ export const useSettingsStore = create<SettingsStore>()(
         set({ bambuEmail: '', bambuUserId: '', bambuAccessToken: '', bambuRefreshToken: '', bambuTokenExpiry: '' }),
 
       setProxyUrl: (url) => set({ proxyUrl: url }),
+      setAccessToken: (token) => set({ bambuAccessToken: token }),
+      setUserId: (id) => set({ bambuUserId: id }),
     }),
     { name: 'tactile-settings' }
   )

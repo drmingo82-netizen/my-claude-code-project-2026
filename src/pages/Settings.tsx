@@ -84,6 +84,119 @@ function InputField({
   );
 }
 
+// ── Manual Token Entry (collapsible fallback) ─────────────────────────────────
+
+function ManualTokenSection() {
+  const { bambuAccessToken, bambuUserId, setAccessToken, setUserId } = useSettingsStore();
+
+  const [open, setOpen]             = useState(false);
+  const [tokenDraft, setTokenDraft] = useState('');
+  const [uidDraft, setUidDraft]     = useState('');
+  const [tokenSaved, setTokenSaved] = useState(false);
+  const [uidSaved, setUidSaved]     = useState(false);
+
+  function handleSaveToken(e: React.FormEvent) {
+    e.preventDefault();
+    const t = tokenDraft.trim();
+    if (!t) return;
+    setAccessToken(t);
+    setTokenDraft('');
+    setTokenSaved(true);
+    setTimeout(() => setTokenSaved(false), 2000);
+  }
+
+  function handleSaveUid(e: React.FormEvent) {
+    e.preventDefault();
+    const id = uidDraft.trim();
+    if (!id) return;
+    setUserId(id);
+    setUidDraft('');
+    setUidSaved(true);
+    setTimeout(() => setUidSaved(false), 2000);
+  }
+
+  return (
+    <div className="border-t border-slate-100 pt-4">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+      >
+        <span
+          className="inline-block transition-transform duration-150 text-[8px]"
+          style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
+        >
+          ▶
+        </span>
+        Advanced: Manual Token Entry
+      </button>
+
+      {open && (
+        <div className="mt-3 rounded-lg bg-slate-50 border border-slate-100 p-4 space-y-4">
+          <p className="text-[11px] text-slate-400 leading-relaxed">
+            Paste credentials directly if the login flow is unavailable (e.g. OAuth-linked accounts).
+            Each field saves independently and overwrites any previously stored value.
+          </p>
+
+          {/* Current saved values — truncated for security */}
+          {(bambuAccessToken || bambuUserId) && (
+            <div className="text-[11px] text-slate-500 space-y-0.5">
+              {bambuAccessToken && (
+                <p>Token: <span className="font-mono">{bambuAccessToken.slice(0, 14)}…</span></p>
+              )}
+              {bambuUserId && (
+                <p>User ID: <span className="font-mono">{bambuUserId}</span></p>
+              )}
+            </div>
+          )}
+
+          {/* Access token */}
+          <form onSubmit={handleSaveToken} className="space-y-1.5">
+            <label className="block text-xs font-medium text-slate-600">Access Token</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={tokenDraft}
+                onChange={(e) => setTokenDraft(e.currentTarget.value)}
+                placeholder="Paste accessToken…"
+                className="flex-1 text-xs font-mono border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#f97316]"
+              />
+              <button
+                type="submit"
+                disabled={!tokenDraft.trim()}
+                className="px-3 py-2 rounded-lg bg-[#1e2a3a] text-white text-xs font-medium hover:bg-[#162030] disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+              >
+                {tokenSaved ? 'Saved ✓' : 'Save'}
+              </button>
+            </div>
+          </form>
+
+          {/* User ID */}
+          <form onSubmit={handleSaveUid} className="space-y-1.5">
+            <label className="block text-xs font-medium text-slate-600">User ID</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={uidDraft}
+                onChange={(e) => setUidDraft(e.currentTarget.value)}
+                placeholder="Numeric user ID (e.g. 12345678)"
+                className="flex-1 text-xs font-mono border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#f97316]"
+              />
+              <button
+                type="submit"
+                disabled={!uidDraft.trim()}
+                className="px-3 py-2 rounded-lg bg-[#1e2a3a] text-white text-xs font-medium hover:bg-[#162030] disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+              >
+                {uidSaved ? 'Saved ✓' : 'Save'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Bambu Cloud Login Section ─────────────────────────────────────────────────
 
 function BambuCloudSection() {
@@ -136,8 +249,25 @@ function BambuCloudSection() {
         error?: string;
       } = await res.json();
 
-      // 2FA gate — only present on the initial login response that needs a code
-      if (data.loginType === 'verifyCode' || data.tfaKey) {
+      // OAuth-linked account (Microsoft/Google/Apple) with no native Bambu password.
+      // loginType === 'tfa' with an empty tfaKey is Bambu's response when it cannot
+      // service a password login because the account was created via OAuth and has no
+      // stored password hash.  There is no programmatic workaround — the user must set
+      // a native Bambu password in the mobile app first.
+      if (data.loginType === 'tfa' && !data.tfaKey) {
+        setError(
+          'This account uses Microsoft/Google/Apple login and has no Bambu password set. ' +
+          'Open the Bambu mobile app → Account Security → Change Password, set a password, ' +
+          'then try again here.',
+        );
+        setLoading(false);
+        return;
+      }
+
+      // Email verification code gate (loginType === 'verifyCode').
+      // tfaKey is always "" in this flow — that is expected and not an error.
+      // A non-empty tfaKey signals authenticator-app TOTP (rare; not handled here).
+      if (data.loginType === 'verifyCode' || (data.tfaKey && data.tfaKey.length > 0)) {
         setShowTfa(true);
         setLoading(false);
         return;
@@ -286,6 +416,8 @@ function BambuCloudSection() {
           )}
         </form>
       )}
+
+      <ManualTokenSection />
 
       {/* Proxy URL */}
       <div className="border-t border-slate-100 pt-5">
