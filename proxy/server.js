@@ -10,7 +10,8 @@ const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
   : [];
 
-const BAMBU_LOGIN_URL = 'https://api.bambulab.com/v1/user-service/user/login';
+const BAMBU_LOGIN_URL   = 'https://api.bambulab.com/v1/user-service/user/login';
+const BAMBU_PROFILE_URL = 'https://api.bambulab.com/v1/user-service/my/profile';
 
 // ── CORS helpers ──────────────────────────────────────────────────────────────
 
@@ -18,8 +19,9 @@ function corsHeaders(origin) {
   const allow = ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.includes(origin);
   return {
     'Access-Control-Allow-Origin':  allow ? (ALLOWED_ORIGINS.length === 0 ? '*' : origin) : '',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    // Authorization is a non-simple header — must be listed or the preflight fails
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   };
 }
 
@@ -94,6 +96,24 @@ const server = http.createServer(async (req, res) => {
       });
       const data = await upstream.json();
       console.log(`Bambu login response (HTTP ${upstream.status}):`, JSON.stringify(data));
+      res.writeHead(upstream.status, { ...hdrs, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(data));
+      return;
+    }
+
+    // GET /profile — fetches Bambu user profile to resolve userId from opaque token
+    if (url === '/profile' && method === 'GET') {
+      const authHeader = req.headers['authorization'];
+      if (!authHeader) {
+        res.writeHead(401, { ...hdrs, 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Authorization header required' }));
+        return;
+      }
+      const upstream = await fetch(BAMBU_PROFILE_URL, {
+        headers: { 'Authorization': authHeader },
+      });
+      const data = await upstream.json();
+      console.log(`Bambu profile response (HTTP ${upstream.status}):`, JSON.stringify(data));
       res.writeHead(upstream.status, { ...hdrs, 'Content-Type': 'application/json' });
       res.end(JSON.stringify(data));
       return;

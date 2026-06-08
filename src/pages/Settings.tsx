@@ -1,23 +1,46 @@
 import { useState } from 'react';
 import { useSettingsStore } from '../stores/settingsStore';
 
-function decodeJwtUserId(jwt: string): string {
+function proxyBase(wssUrl: string): string {
+  return wssUrl
+    .replace(/^wss:\/\//, 'https://')
+    .replace(/^ws:\/\//, 'http://')
+    .replace(/\/$/, '');
+}
+
+function proxyLoginUrl(wssUrl: string):   string { return proxyBase(wssUrl) + '/login';   }
+function proxyProfileUrl(wssUrl: string): string { return proxyBase(wssUrl) + '/profile'; }
+
+function tryDecodeJwtUid(token: string): string {
+  // Standard JWTs start with "eyJ" (base64 of '{"').  Bambu's opaque tokens
+  // (e.g. "AQA...") have no dot separators and cannot be decoded this way.
+  if (!token.startsWith('eyJ')) return '';
   try {
-    // JWT payload is URL-safe base64 (no padding) — normalise before atob()
-    const b64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
     const claims = JSON.parse(atob(b64));
-    // Bambu puts the numeric user id in 'uid'; fall back to standard 'sub'
     return claims.uid != null ? String(claims.uid) : (claims.sub ?? '');
   } catch {
     return '';
   }
 }
 
-function proxyLoginUrl(wssUrl: string): string {
-  return wssUrl
-    .replace(/^wss:\/\//, 'https://')
-    .replace(/^ws:\/\//, 'http://')
-    .replace(/\/$/, '') + '/login';
+async function fetchUserIdFromProfile(accessToken: string, wssUrl: string): Promise<string> {
+  try {
+    const res = await fetch(proxyProfileUrl(wssUrl), {
+      headers: { 'Authorization': `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return '';
+    const profile: {
+      uid?: number | string;
+      userId?: number | string;
+      user_id?: number | string;
+      id?: number | string;
+    } = await res.json();
+    const raw = profile.uid ?? profile.userId ?? profile.user_id ?? profile.id;
+    return raw != null ? String(raw) : '';
+  } catch {
+    return '';
+  }
 }
 
 function fmtExpiry(isoDate: string): string {
@@ -137,12 +160,13 @@ function BambuCloudSection() {
         return;
       }
 
-      // userId is not in the response body — decode it from the JWT payload
-      const userId = decodeJwtUserId(accessToken);
+      // Try JWT decode first (fast, no extra request).  For opaque tokens like
+      // "AQA..." that have no dot separators this returns '' immediately, then
+      // we fall back to the profile endpoint.  If that also fails we proceed
+      // with an empty userId — the MQTT connection only needs the token.
+      let userId = tryDecodeJwtUid(accessToken);
       if (!userId) {
-        setError('Could not decode user ID from token — please try again.');
-        setLoading(false);
-        return;
+        userId = await fetchUserIdFromProfile(accessToken, proxyUrl);
       }
 
       const expiresInSec = data.expiresIn ?? data.expires_in ?? 7776000; // 90 days
