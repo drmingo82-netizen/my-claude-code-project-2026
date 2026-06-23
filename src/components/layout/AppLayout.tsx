@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import QRScannerModal from '../scanner/QRScannerModal';
 
 const navItems = [
@@ -70,6 +70,14 @@ function MobileHeader({ onScanClick }: { onScanClick: () => void }) {
 
 export default function AppLayout() {
   const [showScanner, setShowScanner] = useState(false);
+  const { pathname } = useLocation();
+  const mainRef = useRef<HTMLElement>(null);
+
+  // Scroll to top on every route change — React Router v6 does not do this automatically
+  // when the scroll container is an inner element (overflow-auto on <main>).
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0 });
+  }, [pathname]);
 
   return (
     <div className="flex flex-col min-h-dvh lg:flex-row">
@@ -114,7 +122,7 @@ export default function AppLayout() {
       </aside>
 
       {/* Main content — push down past header on mobile, push up past bottom nav */}
-      <main className="flex-1 overflow-auto pt-14 pb-20 lg:pt-0 lg:pb-0">
+      <main ref={mainRef} className="flex-1 overflow-auto pt-14 pb-20 lg:pt-0 lg:pb-0">
         <Outlet />
       </main>
 
