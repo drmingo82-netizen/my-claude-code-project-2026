@@ -1,23 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { useEffect, Component } from 'react';
-import type { ReactNode } from 'react';
-
-class RouteErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
-  state = { error: null };
-  static getDerivedStateFromError(e: Error) { return { error: e }; }
-  render() {
-    if (this.state.error) {
-      const err = this.state.error as Error;
-      return (
-        <div style={{ padding: 24, fontFamily: 'monospace', color: 'red' }}>
-          <strong>Route render error:</strong><br />{err.message}<br /><br />
-          <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap' }}>{err.stack}</pre>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
+import { useEffect } from 'react';
 import AppLayout from './components/layout/AppLayout';
 import Dashboard from './pages/Dashboard';
 import Filament from './pages/Filament';
@@ -99,7 +81,7 @@ export default function App() {
         <Route path="scan" element={<ScanLanding />} />
         {/* Dev-only: filament calc debugger — drop a .3mf to verify gram math */}
         <Route path="dev/filament-debug" element={<FilamentDebug />} />
-        <Route element={<RouteErrorBoundary><AppLayout /></RouteErrorBoundary>}>
+        <Route element={<AppLayout />}>
           <Route index element={<Dashboard />} />
           <Route path="orders" element={<Orders />} />
           <Route path="filament" element={<Filament />} />
@@ -111,7 +93,7 @@ export default function App() {
           <Route path="locations" element={<Locations />} />
           <Route path="colors" element={<Colors />} />
           <Route path="hardware" element={<Hardware />} />
-          <Route path="queue" element={<div style={{padding:40,color:'red',fontSize:24,background:'white'}}>QUEUE ROUTE MATCH ✓</div>} />
+          <Route path="queue" element={<PrintQueue />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
