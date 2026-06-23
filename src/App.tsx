@@ -1,5 +1,23 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, Component } from 'react';
+import type { ReactNode } from 'react';
+
+class RouteErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null };
+  static getDerivedStateFromError(e: Error) { return { error: e }; }
+  render() {
+    if (this.state.error) {
+      const err = this.state.error as Error;
+      return (
+        <div style={{ padding: 24, fontFamily: 'monospace', color: 'red' }}>
+          <strong>Route render error:</strong><br />{err.message}<br /><br />
+          <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap' }}>{err.stack}</pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import AppLayout from './components/layout/AppLayout';
 import Dashboard from './pages/Dashboard';
 import Filament from './pages/Filament';
@@ -15,7 +33,10 @@ import Hardware from './pages/Hardware';
 import Settings from './pages/Settings';
 import ScanLanding from './pages/ScanLanding';
 import FilamentDebug from './pages/FilamentDebug';
+import PrintQueue from './pages/PrintQueue';
 import { useDryingStore } from './stores/dryingStore';
+import { useFilamentStore } from './stores/filamentStore';
+import { useQueueStore } from './stores/queueStore';
 import { useJobTracker } from './hooks/useJobTracker';
 import ToastContainer from './components/ui/ToastContainer';
 
@@ -45,6 +66,20 @@ function TimerWatcher() {
   return null;
 }
 
+// Fetches filament inventory from the bridge server on app load so all devices share the same data
+function FilamentSync() {
+  const hydrate = useFilamentStore(s => s.hydrate);
+  useEffect(() => { hydrate(); }, [hydrate]);
+  return null;
+}
+
+// Fetches print queue from the bridge server on app load
+function QueueSync() {
+  const hydrate = useQueueStore(s => s.hydrate);
+  useEffect(() => { hydrate(); }, [hydrate]);
+  return null;
+}
+
 // Runs globally — watches printer gcodeState transitions and drives auto-deduction
 function JobTracker() {
   useJobTracker();
@@ -55,6 +90,8 @@ export default function App() {
   return (
     <BrowserRouter>
       <TimerWatcher />
+      <FilamentSync />
+      <QueueSync />
       <JobTracker />
       <ToastContainer />
       <Routes>
@@ -62,7 +99,7 @@ export default function App() {
         <Route path="scan" element={<ScanLanding />} />
         {/* Dev-only: filament calc debugger — drop a .3mf to verify gram math */}
         <Route path="dev/filament-debug" element={<FilamentDebug />} />
-        <Route element={<AppLayout />}>
+        <Route element={<RouteErrorBoundary><AppLayout /></RouteErrorBoundary>}>
           <Route index element={<Dashboard />} />
           <Route path="orders" element={<Orders />} />
           <Route path="filament" element={<Filament />} />
@@ -74,6 +111,7 @@ export default function App() {
           <Route path="locations" element={<Locations />} />
           <Route path="colors" element={<Colors />} />
           <Route path="hardware" element={<Hardware />} />
+          <Route path="queue" element={<PrintQueue />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

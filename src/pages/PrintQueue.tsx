@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQueueStore } from '../stores/queueStore';
 import { useSKUStore } from '../stores/skuStore';
 import { usePrinterStatus } from '../hooks/usePrinterStatus';
@@ -226,6 +226,10 @@ export default function PrintQueue() {
   const { items, serverReachable, isHydrated, addItem, updateItem, deleteItem, moveUp, moveDown, dispatch } =
     useQueueStore();
   const { printers } = usePrinterStatus();
+
+  useEffect(() => {
+    console.log('[PrintQueue] mounted — items:', items.length, 'hydrated:', isHydrated, 'reachable:', serverReachable);
+  }, []);
 
   const [modal, setModal]       = useState<'add' | { item: PrintQueueItem } | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
