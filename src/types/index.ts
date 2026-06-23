@@ -184,6 +184,27 @@ export interface SKUItem {
   notes?: string;
 }
 
+// ── Print Queue ───────────────────────────────────────────────────────────────
+
+export type QueueStatus = 'queued' | 'printing' | 'done' | 'cancelled' | 'failed';
+export type QueueTargetPrinter = 'p1s' | 'h2s' | 'a2l' | 'a1' | 'any';
+
+export interface PrintQueueItem {
+  id: string;
+  displayName: string;
+  fileName: string;
+  skuId?: string;
+  copies: number;
+  copiesCompleted: number;
+  targetPrinter: QueueTargetPrinter;
+  priority: number;
+  status: QueueStatus;
+  createdAt: string;
+  notes?: string;
+  activePrinterId?: string;
+  startedAt?: string;
+}
+
 export interface SaleEntry {
   id: string;
   productId: string;

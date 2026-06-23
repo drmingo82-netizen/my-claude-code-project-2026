@@ -5,6 +5,7 @@ import QRScannerModal from '../scanner/QRScannerModal';
 const navItems = [
   { to: '/', label: 'Dashboard', icon: '📊' },
   { to: '/orders', label: 'Orders', icon: '📦' },
+  { to: '/queue', label: 'Print Queue', icon: '📋' },
   { to: '/filament', label: 'Filament', icon: '🧵' },
   { to: '/locations', label: 'Locations', icon: '📍' },
   { to: '/colors', label: 'Colors', icon: '🎨' },
