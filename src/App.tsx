@@ -111,7 +111,7 @@ export default function App() {
           <Route path="locations" element={<Locations />} />
           <Route path="colors" element={<Colors />} />
           <Route path="hardware" element={<Hardware />} />
-          <Route path="queue" element={<PrintQueue />} />
+          <Route path="queue" element={<div style={{padding:40,color:'red',fontSize:24,background:'white'}}>QUEUE ROUTE MATCH ✓</div>} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
