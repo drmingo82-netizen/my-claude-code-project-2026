@@ -63,13 +63,22 @@ export const useQueueStore = create<QueueStore>()((set, get) => ({
   },
 
   addItem: (item) => {
+    const tempId = crypto.randomUUID();
     const optimistic: PrintQueueItem = {
       ...item,
-      id: crypto.randomUUID(),
+      id: tempId,
       createdAt: new Date().toISOString(),
     };
     set(s => ({ items: [...s.items, optimistic].sort(byPriorityThenDate) }));
-    api.add(item).catch(console.error);
+    // The server assigns its own id; swap our temp id for it so dispatch can find the item
+    api.add(item)
+      .then(r => r.json())
+      .then((saved: PrintQueueItem) => {
+        if (saved?.id) {
+          set(s => ({ items: s.items.map(i => (i.id === tempId ? saved : i)).sort(byPriorityThenDate) }));
+        }
+      })
+      .catch(console.error);
   },
 
   updateItem: (id, attrs) => {
