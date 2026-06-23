@@ -9,11 +9,12 @@ import FormField from '../components/ui/FormField';
 
 const STATUSES: QueueStatus[] = ['queued', 'printing', 'done', 'cancelled'];
 const PRINTERS: { value: QueueTargetPrinter; label: string }[] = [
-  { value: 'any',  label: 'Any' },
-  { value: 'p1s',  label: 'Martha (P1S)' },
-  { value: 'h2s',  label: 'Athena (H2D)' },
-  { value: 'a2l',  label: 'SCARLETT (A2L)' },
-  { value: 'a1',   label: 'Delores (A1)' },
+  { value: 'any',    label: 'Any' },
+  { value: 'p1s',    label: 'Martha (P1S)' },
+  { value: 'h2s',    label: 'Athena (H2D)' },
+  { value: 'a2l',    label: 'SCARLETT (A2L)' },
+  { value: 'a1',     label: 'Delores (A1)' },
+  { value: 'a1mini', label: 'Rosie (A1 Mini)' },
 ];
 
 function statusBadge(status: QueueStatus) {
@@ -38,11 +39,12 @@ function statusLabel(status: QueueStatus) {
 
 function printerLabel(p: QueueTargetPrinter) {
   switch (p) {
-    case 'p1s': return 'Martha';
-    case 'h2s': return 'Athena';
-    case 'a2l': return 'SCARLETT';
-    case 'a1':  return 'Delores';
-    default:    return 'Any';
+    case 'p1s':    return 'Martha';
+    case 'h2s':    return 'Athena';
+    case 'a2l':    return 'SCARLETT';
+    case 'a1':     return 'Delores';
+    case 'a1mini': return 'Rosie';
+    default:       return 'Any';
   }
 }
 
@@ -234,7 +236,7 @@ export default function PrintQueue() {
 
   function isPrinterIdle(target: QueueTargetPrinter): boolean {
     const candidates = target === 'any'
-      ? ['p1s', 'h2s', 'a2l', 'a1']
+      ? ['p1s', 'h2s', 'a2l', 'a1', 'a1mini']
       : [target];
     return candidates.some(id => {
       const p = printers.find(p => p.id === id);

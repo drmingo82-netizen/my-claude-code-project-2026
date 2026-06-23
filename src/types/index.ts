@@ -187,7 +187,7 @@ export interface SKUItem {
 // ── Print Queue ───────────────────────────────────────────────────────────────
 
 export type QueueStatus = 'queued' | 'printing' | 'done' | 'cancelled' | 'failed';
-export type QueueTargetPrinter = 'p1s' | 'h2s' | 'a2l' | 'a1' | 'any';
+export type QueueTargetPrinter = 'p1s' | 'h2s' | 'a2l' | 'a1' | 'a1mini' | 'any';
 
 export interface PrintQueueItem {
   id: string;
