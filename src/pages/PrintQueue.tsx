@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQueueStore } from '../stores/queueStore';
 import { useSKUStore } from '../stores/skuStore';
 import { usePrinterStatus } from '../hooks/usePrinterStatus';
+import { useAutoPrintStore } from '../stores/autoPrintStore';
 import type { PrintQueueItem, QueueStatus, QueueTargetPrinter } from '../types';
 import Modal from '../components/ui/Modal';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
@@ -226,6 +227,7 @@ export default function PrintQueue() {
   const { items, serverReachable, isHydrated, addItem, updateItem, deleteItem, moveUp, moveDown, dispatch } =
     useQueueStore();
   const { printers } = usePrinterStatus();
+  const { enabled: autoEnabled, printers: autoPrinters, setEnabled: setAutoEnabled, markReady } = useAutoPrintStore();
 
   useEffect(() => {
     console.log('[PrintQueue] mounted — items:', items.length, 'hydrated:', isHydrated, 'reachable:', serverReachable);
@@ -318,6 +320,63 @@ export default function PrintQueue() {
           <button onClick={() => setDispatchError(null)} className="text-red-400 hover:text-red-600 text-xs">✕</button>
         </div>
       )}
+
+      {/* AutoPrint */}
+      <div className="mb-5 bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold text-[#1e2a3a]">AutoPrint</p>
+            <p className="text-xs text-slate-400">
+              {autoEnabled
+                ? 'On — clear a bed and tap Ready to start the next queued job.'
+                : 'Off — dispatch prints manually with “Print now”.'}
+            </p>
+          </div>
+          <button
+            role="switch"
+            aria-checked={autoEnabled}
+            onClick={() => setAutoEnabled(!autoEnabled)}
+            className={[
+              'relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0',
+              autoEnabled ? 'bg-[#f97316]' : 'bg-slate-300',
+            ].join(' ')}
+          >
+            <span className={[
+              'inline-block h-5 w-5 transform rounded-full bg-white transition-transform',
+              autoEnabled ? 'translate-x-5' : 'translate-x-0.5',
+            ].join(' ')} />
+          </button>
+        </div>
+
+        {autoEnabled && (
+          <div className="border-t border-slate-100 px-4 py-3 flex flex-wrap gap-2">
+            {printers.map(p => {
+              const ready   = autoPrinters[p.id]?.ready ?? false;
+              const state   = p.printer.gcodeState;
+              const busy    = state === 'RUNNING' || state === 'PAUSE';
+              const offline = p.connection !== 'connected';
+              return (
+                <div key={p.id} className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-slate-700 leading-none">{p.name}</p>
+                    <p className="text-[10px] text-slate-400 leading-none mt-0.5">
+                      {offline ? 'offline' : busy ? 'printing' : ready ? 'ready ✓ waiting for job' : state.toLowerCase()}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => markReady(p.id)}
+                    disabled={offline || busy || ready}
+                    title={offline ? 'Printer offline' : busy ? 'Printer is busy' : ready ? 'Already marked ready' : 'Bed is clear — start the next job'}
+                    className="text-xs font-medium px-2.5 py-1 rounded-md bg-[#f97316] text-white hover:bg-[#ea6d0f] disabled:bg-slate-200 disabled:text-slate-400 transition-colors"
+                  >
+                    {ready ? 'Ready ✓' : 'Ready'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Summary cards */}
       {items.length > 0 && (

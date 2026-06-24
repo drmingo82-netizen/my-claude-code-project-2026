@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { PrintQueueItem } from '../types';
+import { useAutoPrintStore } from './autoPrintStore';
 
 const SERVER_URL =
   (import.meta.env.VITE_PRINTER_SERVER_URL as string | undefined) ?? 'http://localhost:3001';
@@ -139,6 +140,8 @@ function connectWS() {
       const msg = JSON.parse(event.data);
       if (msg.type === 'queue' && Array.isArray(msg.items)) {
         useQueueStore.setState({ items: msg.items.sort(byPriorityThenDate), serverReachable: true });
+      } else if (msg.type === 'autoprint') {
+        useAutoPrintStore.getState().applyServerState({ enabled: msg.enabled, printers: msg.printers });
       }
     } catch { /* ignore malformed messages */ }
   };

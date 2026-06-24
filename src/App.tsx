@@ -19,6 +19,7 @@ import PrintQueue from './pages/PrintQueue';
 import { useDryingStore } from './stores/dryingStore';
 import { useFilamentStore } from './stores/filamentStore';
 import { useQueueStore } from './stores/queueStore';
+import { useAutoPrintStore } from './stores/autoPrintStore';
 import { useJobTracker } from './hooks/useJobTracker';
 import ToastContainer from './components/ui/ToastContainer';
 
@@ -62,6 +63,13 @@ function QueueSync() {
   return null;
 }
 
+// Fetches AutoPrint state (global toggle + per-printer ready gates) on app load
+function AutoPrintSync() {
+  const hydrate = useAutoPrintStore(s => s.hydrate);
+  useEffect(() => { hydrate(); }, [hydrate]);
+  return null;
+}
+
 // Runs globally — watches printer gcodeState transitions and drives auto-deduction
 function JobTracker() {
   useJobTracker();
@@ -74,6 +82,7 @@ export default function App() {
       <TimerWatcher />
       <FilamentSync />
       <QueueSync />
+      <AutoPrintSync />
       <JobTracker />
       <ToastContainer />
       <Routes>
