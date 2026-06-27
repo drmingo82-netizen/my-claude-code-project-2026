@@ -246,8 +246,9 @@ export default function PrintQueue() {
       : [target];
     return candidates.some(id => {
       const p = printers.find(p => p.id === id);
-      return p?.connection === 'connected' &&
-        (p.printer.gcodeState === 'IDLE' || p.printer.gcodeState === 'FINISH');
+      // Require TRUE idle — a printer in FINISH hasn't been acknowledged on-screen and will
+      // ignore a print command, so "Print now" stays disabled until it's actually IDLE.
+      return p?.connection === 'connected' && p.printer.gcodeState === 'IDLE';
     });
   }
 
