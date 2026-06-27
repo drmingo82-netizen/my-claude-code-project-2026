@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import type { PrinterEntry } from '../hooks/usePrinterStatus';
 import { useActiveJobStore } from '../stores/activeJobStore';
+import { useNotificationStore } from '../stores/notificationStore';
 import { parse3MF } from '../lib/parse3mf';
 
 function formatRemaining(mins: number | null): string {
@@ -76,7 +77,12 @@ export default function PrinterWidget({ printer, serverOnline }: Props) {
     e.target.value = '';
     if (!file) return;
     const result = await parse3MF(file);
-    if (!result || result.filamentPerSlot.length === 0) return;
+    if (!result || result.filamentPerSlot.length === 0) {
+      useNotificationStore.getState().addToast(
+        'No gram data in that .3mf — it looks unsliced. Use “Export plate sliced file” in Bambu Studio and upload that.',
+      );
+      return;
+    }
     const calculatedGrams: Record<number, number> = {};
     for (const { slot, grams } of result.filamentPerSlot) {
       calculatedGrams[slot - 1] = grams; // 1-based → 0-based AMS slot index
