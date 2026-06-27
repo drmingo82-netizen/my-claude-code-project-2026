@@ -101,10 +101,31 @@ export const useActiveJobStore = create<ActiveJobStore>()(
       setCalculatedGrams: (printerId, grams) =>
         set((s) => {
           const job = s.activeJobs[printerId];
-          if (!job) return s;
-          return {
-            activeJobs: { ...s.activeJobs, [printerId]: { ...job, calculatedGrams: grams } },
+          if (job) {
+            return {
+              activeJobs: { ...s.activeJobs, [printerId]: { ...job, calculatedGrams: grams } },
+            };
+          }
+          // No tracked job — e.g. the print was running through a server reconnect, so the
+          // JobTracker never saw the IDLE→RUNNING transition. Create a minimal running job so
+          // the uploaded estimate is stored (and can drive auto-deduction). Spool assignments
+          // come from the current AMS mappings for this printer.
+          const amsMappings = useFilamentStore.getState().amsMappings.filter(
+            (m) => m.printerId === printerId,
+          );
+          const spoolAssignments: Record<number, string> = {};
+          for (const m of amsMappings) spoolAssignments[m.amsSlot] = m.spoolId;
+          const newJob: ActivePrintJob = {
+            jobId: crypto.randomUUID(),
+            printerId,
+            gcodeFile: 'unknown',
+            startedAt: new Date().toISOString(),
+            calculatedGrams: grams,
+            spoolAssignments,
+            lastProgressPct: 0,
+            status: 'running',
           };
+          return { activeJobs: { ...s.activeJobs, [printerId]: newJob } };
         }),
 
       completeJob: (printerId) => {
