@@ -4,7 +4,7 @@ import { useFilamentStore } from '../stores/filamentStore';
 import type { Product } from '../types';
 import { unitCost, unitProfit, unitMarginPct } from '../lib/metrics';
 import { exportToCsv, parseCsv } from '../lib/csv';
-import Modal from '../components/ui/Modal';
+import Modal, { ModalFooter } from '../components/ui/Modal';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import FormField from '../components/ui/FormField';
 import { parse3MF, formatPrintTime, type Parsed3MF } from '../lib/parse3mf';
@@ -320,21 +320,23 @@ function ProductForm({ initial, existingSkus, onSave, onClose }: ProductFormProp
         </div>
       </div>
 
-      <div className="flex gap-3 pt-1">
-        <button
-          type="button"
-          onClick={onClose}
-          className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          className="flex-1 py-2.5 rounded-lg bg-[#f97316] text-white text-sm font-medium hover:bg-[#ea6d0f] transition-colors"
-        >
-          Save Product
-        </button>
-      </div>
+      <ModalFooter>
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="flex-1 py-2.5 rounded-lg bg-[#f97316] text-white text-sm font-medium hover:bg-[#ea6d0f] transition-colors"
+          >
+            Save Product
+          </button>
+        </div>
+      </ModalFooter>
     </form>
   );
 }
