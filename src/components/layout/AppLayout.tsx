@@ -17,6 +17,12 @@ const navItems = [
   { to: '/settings',  label: 'Settings',   icon: '⚙️' },
 ];
 
+// The mobile bottom bar can't fit 12 tabs. Show the first few as primary tabs plus a "More"
+// button that opens the rest in a sheet. Desktop sidebar still lists all of navItems.
+const PRIMARY_COUNT = 4;
+const primaryNav = navItems.slice(0, PRIMARY_COUNT);
+const moreNav = navItems.slice(PRIMARY_COUNT);
+
 function NavItem({ to, label, icon }: { to: string; label: string; icon: string }) {
   return (
     <NavLink
@@ -35,6 +41,82 @@ function NavItem({ to, label, icon }: { to: string; label: string; icon: string 
       <span className="text-xl leading-none">{icon}</span>
       <span className="text-[10px] leading-none">{label}</span>
     </NavLink>
+  );
+}
+
+// "More" bottom-nav entry: a button that opens a sheet with the overflow nav items. The button
+// shows active styling when the current route lives under one of those items.
+function MoreNav({ items }: { items: { to: string; label: string; icon: string }[] }) {
+  const [open, setOpen] = useState(false);
+  const { pathname } = useLocation();
+  const isActive = items.some((n) => pathname.startsWith(n.to));
+
+  // Close on route change (a tap navigated) and on Escape.
+  useEffect(() => { setOpen(false); }, [pathname]);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [open]);
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        style={{ touchAction: 'manipulation' }}
+        aria-label="More"
+        aria-expanded={open}
+        className={[
+          'flex flex-col items-center gap-0.5 px-3 py-2 rounded-lg font-medium transition-colors',
+          isActive ? 'text-[#f97316] bg-orange-50' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100',
+        ].join(' ')}
+      >
+        <span className="text-xl leading-none font-bold tracking-tight">•••</span>
+        <span className="text-[10px] leading-none">More</span>
+      </button>
+
+      {open && (
+        <div
+          className="lg:hidden fixed inset-0 z-[60] flex items-end"
+          onClick={(e) => e.target === e.currentTarget && setOpen(false)}
+        >
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setOpen(false)} />
+          <div className="relative bg-white w-full rounded-t-2xl shadow-xl max-h-[80dvh] overflow-y-auto overscroll-contain pb-[calc(1rem+env(safe-area-inset-bottom))]">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white">
+              <h2 className="text-base font-semibold text-[#1e2a3a]">More</h2>
+              <button
+                onClick={() => setOpen(false)}
+                className="text-slate-400 hover:text-slate-600 text-xl leading-none p-1 -mr-1"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="grid grid-cols-4 gap-2 p-4">
+              {items.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.to === '/'}
+                  onClick={() => setOpen(false)}
+                  style={{ touchAction: 'manipulation' }}
+                  className={({ isActive: active }) =>
+                    [
+                      'flex flex-col items-center gap-1 px-2 py-3 rounded-xl text-center transition-colors',
+                      active ? 'text-[#f97316] bg-orange-50' : 'text-slate-600 hover:bg-slate-100',
+                    ].join(' ')
+                  }
+                >
+                  <span className="text-2xl leading-none">{item.icon}</span>
+                  <span className="text-[10px] leading-tight">{item.label}</span>
+                </NavLink>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -128,9 +210,10 @@ export default function AppLayout() {
 
       {/* Mobile bottom nav */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around px-2 py-1 z-50">
-        {navItems.map((item) => (
+        {primaryNav.map((item) => (
           <NavItem key={item.to} {...item} />
         ))}
+        <MoreNav items={moreNav} />
       </nav>
 
       {/* QR scanner modal — fullscreen, renders over everything */}
