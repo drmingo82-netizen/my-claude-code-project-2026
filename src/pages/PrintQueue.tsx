@@ -240,16 +240,32 @@ export default function PrintQueue() {
 
   const nextPriority = items.length > 0 ? Math.max(...items.map(i => i.priority)) + 1 : 1;
 
+  function dispatchCandidates(target: QueueTargetPrinter): string[] {
+    return target === 'any' ? ['p1s', 'h2s', 'a2l', 'a1', 'a1mini'] : [target];
+  }
+
+  // A printer is dispatch-ready when connected and IDLE or FINISH. FINISH is the normal
+  // between-print state on Developer Mode printers; dispatching from it triggers
+  // FINISH→IDLE→RUNNING with no on-screen tap (proven on the fleet). This matches the bridge's
+  // AutoPrint guard (IDLE/FINISH allowed, FAILED excluded).
   function isPrinterIdle(target: QueueTargetPrinter): boolean {
-    const candidates = target === 'any'
-      ? ['p1s', 'h2s', 'a2l', 'a1', 'a1mini']
-      : [target];
-    return candidates.some(id => {
+    return dispatchCandidates(target).some(id => {
       const p = printers.find(p => p.id === id);
-      // Require TRUE idle — a printer in FINISH hasn't been acknowledged on-screen and will
-      // ignore a print command, so "Print now" stays disabled until it's actually IDLE.
-      return p?.connection === 'connected' && p.printer.gcodeState === 'IDLE';
+      return p?.connection === 'connected' &&
+        (p.printer.gcodeState === 'IDLE' || p.printer.gcodeState === 'FINISH');
     });
+  }
+
+  // Why "Print now" is disabled, for the button tooltip — distinguishes a FAILED printer
+  // (needs a human/reset) from one that's merely busy or offline.
+  function dispatchBlockReason(target: QueueTargetPrinter): string {
+    const cps = dispatchCandidates(target)
+      .map(id => printers.find(p => p.id === id))
+      .filter((p): p is NonNullable<typeof p> => !!p && p.connection === 'connected');
+    if (cps.length === 0) return 'Target printer offline';
+    if (cps.some(p => p.printer.gcodeState === 'FAILED'))
+      return 'Printer needs attention — clear the error / reset it on the printer';
+    return 'Target printer is busy';
   }
 
   async function handleDispatch(item: PrintQueueItem) {
@@ -467,7 +483,7 @@ export default function PrintQueue() {
                             <button
                               onClick={() => handleDispatch(item)}
                               disabled={!canDispatch || isDispatching}
-                              title={!isPrinterIdle(item.targetPrinter) ? 'Target printer is busy' : !serverReachable ? 'Bridge offline' : 'Send to printer now'}
+                              title={!serverReachable ? 'Bridge offline' : !isPrinterIdle(item.targetPrinter) ? dispatchBlockReason(item.targetPrinter) : 'Send to printer now'}
                               className="text-xs font-medium px-2 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                             >
                               {isDispatching ? '…' : 'Print now'}

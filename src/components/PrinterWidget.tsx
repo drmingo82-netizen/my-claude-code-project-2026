@@ -53,9 +53,9 @@ function StatusBadge({ printer, serverOnline }: { printer: PrinterEntry | null; 
   if (gs === 'PAUSE')
     return <><Dot color="bg-amber-400" /><span className="text-amber-400">Paused</span></>;
   if (gs === 'FINISH')
-    return <><Dot color="bg-slate-400" /><span className="text-white/50">Idle</span></>;
+    return <><Dot color="bg-emerald-400" /><span className="text-emerald-300 font-medium">Finished — ready</span></>;
   if (gs === 'FAILED')
-    return <><Dot color="bg-red-400" /><span className="text-red-400">Error</span></>;
+    return <><Dot color="bg-red-400" /><span className="text-red-400">Error — needs attention</span></>;
   return <><Dot color="bg-slate-400" /><span className="text-white/50">Idle</span></>;
 }
 
